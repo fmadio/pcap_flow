@@ -2,7 +2,11 @@
 displays flow information from pcap and can extract individual or all tcp streams
 
 
-***Options***
+###Options
+
+Command line options
+
+```
 
 -o <filename>               | write filtered flows to the specified file name
                             | for bulk tcp extraction this is the prefix filename
@@ -12,10 +16,12 @@ displays flow information from pcap and can extract individual or all tcp stream
 --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest 
 --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
 
-***Examples***
+```
+
+###Examples
 
 
-1) generate flow information from a compressed pcap file 
+**1) generate flow information from a compressed pcap file**
 
 ```
 zcat capture.pcap.gz | pcap_flows --stdin
