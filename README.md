@@ -1,13 +1,11 @@
 # pcap_flow
 displays flow information from pcap and can extract individual or all tcp streams
 
-
 ###Options
 
 Command line options
 
 ```
-
 -o <filename>               | write filtered flows to the specified file name
                             | for bulk tcp extraction this is the prefix filename
 --packet-max  <number>      | only process the first <number> packets
@@ -16,7 +14,6 @@ Command line options
 --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest 
 --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
 --disable-display           | do not display flow information to stdout
-
 ```
 
 ###Examples
