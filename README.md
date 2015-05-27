@@ -15,6 +15,7 @@ Command line options
 --extract-tcp <number>      | extract FlowID <number> as a TCP stream to the output file name
 --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest 
 --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
+--disable-display           | do not display flow information to stdout
 
 ```
 
@@ -77,4 +78,3 @@ pcap_flows  /hitcon.pcap  --flow-packet-min 1000
 1048574 FlowID:   642642 | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
 
 ```
-

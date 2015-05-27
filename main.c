@@ -118,6 +118,8 @@ static u32			s_ExtractTCPPortMin		= 0;
 static u32			s_ExtractTCPPortMax		= 0;
 static struct TCPStream_t* s_ExtractTCP[1024*1024]; 	// list of tcp stream extraction objects 
 
+static bool			s_EnableFlowDisplay 	= true;		// print full flow information
+
 //---------------------------------------------------------------------------------------------
 // mmaps a pcap file in full
 static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
@@ -464,14 +466,15 @@ static void print_usage(void)
 	fprintf(stderr, "Contact: support at fmad.io\n"); 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "-o <filename>                 | write output to the specified file name\n");
-	fprintf(stderr, "\n ");
+	fprintf(stderr, "  -o <filename>                 | write output to the specified file name\n");
+	fprintf(stderr, "\n");
 	fprintf(stderr, "  --packet-max  <number>      | only process the first <number> packets\n");
 	fprintf(stderr, "  --extract <number>          | extract FlowID <number> into the output PCAP file\n");
 	fprintf(stderr, "  --extract-tcp <number>      | extract FlowID <number> as a TCP stream to the output file name\n"); 
 	fprintf(stderr, "  --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest\n");
 	fprintf(stderr, "  --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
 	fprintf(stderr, "  --flow-packet-min <number>  | minimum packet count to display flow info\n"); 
+	fprintf(stderr, "  --disable-display           | do not display flow information to stdout\n");
 	fprintf(stderr, "\n");
 }
 
@@ -548,8 +551,11 @@ int main(int argc, char* argv[])
 				s_FlowListPacketMin = atoi(argv[i+1]);
 				fprintf(stderr, "minimum packet count %lli\n", s_FlowListPacketMin);
 			}
-
-
+			// display flow info
+			else if (strcmp(argv[i], "--disable-display") == 0)
+			{
+				s_EnableFlowDisplay = false;
+			}
 			// output file
 			else if (strcmp(argv[i], "-o") == 0)
 			{
@@ -837,7 +843,7 @@ int main(int argc, char* argv[])
 	if (OutPCAP) fclose(OutPCAP);
 	fTCPStream_Close(TCPStream);
 
-	PrintHumanFlows();	
+	if (s_EnableFlowDisplay) PrintHumanFlows();	
 
 }
 
