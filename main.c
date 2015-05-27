@@ -121,17 +121,7 @@ static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
 {
 	PCAPFile_t* F = (PCAPFile_t*)malloc( sizeof(PCAPFile_t) );
 	memset(F, 0, sizeof(PCAPFile_t));
-
-	/*
-	struct stat fstat;	
-	if (stat(Path, &fstat) < 0)
-	{
-		fprintf(stderr, "failed to get file size [%s]\n", Path);
-		return NULL;
-	}
-	*/
 	F->Path		= Path;
-	F->Length 	= 1e12;//fstat.st_size;
 
 	if (!EnableStdin)
 	{
@@ -141,10 +131,19 @@ static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
 			fprintf(stderr, "failed to open buffered file [%s]\n", Path);
 			return NULL;
 		}
+
+		struct stat fstat;	
+		if (stat(Path, &fstat) < 0)
+		{
+			fprintf(stderr, "failed to get file size [%s]\n", Path);
+			return NULL;
+		}
+		F->Length 	= fstat.st_size;
 	}
 	else
 	{
-		F->F = stdin;
+		F->F 		= stdin;
+		F->Length 	= 1e12;
 	}
 
 	// note always map as read-only 
@@ -154,7 +153,7 @@ static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
 		int ret = fread(&Header1, 1, sizeof(Header1), F->F);
 		if (ret != sizeof(PCAPHeader_t))
 		{
-			fprintf(stderr, "failed to read header\n");
+			fprintf(stderr, "failed to read header %i\n", ret);
 			return NULL;
 		}
 
@@ -407,17 +406,19 @@ static void PrintFlowUDP(FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 static void PrintHumanFlows(void)
 {
 	u64 PktMax = 0;
+	/*
 	for (int i=1; i < s_FlowListPos; i++)
 	{
 		FlowHash_t* F = &s_FlowList[i];
 		if (PktMax < F->PktCnt) PktMax = F->PktCnt;
 	}
+	*/
 
 	u32 FlowCnt = 0;
-	s32 Remain = s_FlowListPos;
+	s32 Remain = s_FlowListPos-1;
 	while (Remain > 0)
 	{
-		u64 NextMax = 0;
+		u64 NextMax = 1e16;
 		for (int i=1; i < s_FlowListPos; i++)
 		{
 			FlowHash_t* F = &s_FlowList[i];
@@ -431,15 +432,14 @@ static void PrintHumanFlows(void)
 
 				Remain--;
 				FlowCnt++;
-				assert(Remain > 0);
+				assert(Remain >= 0);
 			}
-			else if (F->PktCnt < PktMax)
+			else if (F->PktCnt > PktMax)
 			{
-				if (NextMax < F->PktCnt) NextMax = F->PktCnt;
+				if (NextMax > F->PktCnt) NextMax = F->PktCnt;
 			}
 		}
 
-		if (PktMax == 0) break;
 		//printf("%i -> %i : %i\n", PktMax, NextMax, Remain);
 		PktMax = NextMax;
 	}
@@ -460,6 +460,8 @@ static void print_usage(void)
 	fprintf(stderr, "  --packet-max  <number>      | only process the first <number> packets\n");
 	fprintf(stderr, "  --extract <number>          | extract FlowID <number> into the output PCAP file\n");
 	fprintf(stderr, "  --extract-tcp <number>      | extract FlowID <number> as a TCP stream to the output file name\n"); 
+	fprintf(stderr, "  --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest\n");
+	fprintf(stderr, "  --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
 	fprintf(stderr, "\n");
 }
 
@@ -486,9 +488,9 @@ int main(int argc, char* argv[])
 		{
 			if (strcmp(argv[i], "--packet-max") == 0)
 			{
-				fprintf(stderr, "setting maximum number of packets to processn");
 				s_MaxPackets = atoll(argv[i+1]); 
 				i+= 1;
+				fprintf(stderr, "setting maximum number of packets to %lli\n", s_MaxPackets);
 			}
 			else if (strcmp(argv[i], "--extract") == 0)
 			{
@@ -617,8 +619,6 @@ int main(int argc, char* argv[])
 	// clear tcp output
 
 	memset(s_ExtractTCP, 0, sizeof(s_ExtractTCP));
-
-
 	printf("[%30s] FileSize: %lliGB\n", PCAPFile->Path, PCAPFile->Length / kGB(1));
 
 	u64 TotalByte 		= 0;
