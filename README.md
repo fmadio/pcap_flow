@@ -29,8 +29,12 @@ zcat capture.pcap.gz | pcap_flows --stdin
 
 2) output a specific flow to a seperate pcap file 
 
+```
 pcap_flows --extract 1234 raw_capture.pcap -o capture_flow_1234.pcap
+```
 
 3) extract a tcp stream from a pcap
 
+```
 pcap_flows --extract-tcp 1234 raw_capture.pcap -o capture_flow_as_tcp1234.pcap
+```
