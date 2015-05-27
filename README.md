@@ -78,7 +78,7 @@ pcap_flows  /hitcon.pcap  --flow-packet-min 1000
 1048574 FlowID:   642642 | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
 ```
 
-Extract only port 80 traffic ( from hitcon.pcap to a seperate file
+Extract only port 80 traffic from hitcon.pcap to a seperate file. This is the individual TCP port 80 -> 63280 flow.
 
 1048574 **FlowID:   642642** | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
 
