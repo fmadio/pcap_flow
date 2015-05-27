@@ -104,8 +104,11 @@ static FlowHash_t*	s_FlowList;							// statically allocated max number of flows
 static u32			s_FlowListPos = 1;					// current allocated flow
 static u32			s_FlowListMax;						// max number of flows
 
+static u64			s_FlowListPacketMin = 0;			// minimum number of packets to show entry for
+
 static u8			s_FlowExtract[1024*1024];			// boolean to extract the specified flow id
 static bool			s_FlowExtractEnable 	= false;	// indicaes flow extraction 
+static u32			s_FlowExtractMax		= 1024*1024;
 
 static u32			s_ExtractTCPEnable 		= false;	// request extraction of tcp stream
 static u32			s_ExtractTCPFlowID 		= 0;		// which flow to extract
@@ -270,6 +273,9 @@ static u32 FlowHash(u32 Type, u8* Payload, u32 Length)
 
 static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS) 
 {
+	if (s_FlowListPos >= s_FlowExtractMax) return 0;
+
+
 	FlowHash_t* F = NULL; 
 
 	// first level has is 24b index, followed by list of leaf nodes
@@ -355,7 +361,7 @@ static void PrintFlowTCP(FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 {
 
 	TCPHash_t* TCP = (TCPHash_t*)F->Data;
-	printf("%5i FlowID: %5i | TCP  ", FlowCnt, FlowID); 	
+	printf("%5i FlowID: %8i | TCP  ", FlowCnt, FlowID); 	
 	PrintMAC(TCP->MACSrc);
 	printf(" -> ");
 	PrintMAC(TCP->MACDst);
@@ -381,7 +387,7 @@ static void PrintFlowUDP(FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 {
 
 	UDPHash_t* UDP = (UDPHash_t*)F->Data;
-	printf("%5i FlowID: %5i | UDP  ", FlowCnt, FlowID); 	
+	printf("%5i FlowID: %8i | UDP  ", FlowCnt, FlowID); 	
 	PrintMAC(UDP->MACSrc);
 	printf(" -> ");
 	PrintMAC(UDP->MACDst);
@@ -424,12 +430,15 @@ static void PrintHumanFlows(void)
 			FlowHash_t* F = &s_FlowList[i];
 			if (F->PktCnt == PktMax)
 			{
-				switch (F->Type)
+				if (F->PktCnt >= s_FlowListPacketMin)
 				{
-				case FLOW_TYPE_TCP: PrintFlowTCP(F, i, FlowCnt); break;
-				case FLOW_TYPE_UDP: PrintFlowUDP(F, i, FlowCnt); break;
+					switch (F->Type)
+					{
+					case FLOW_TYPE_TCP: PrintFlowTCP(F, i, FlowCnt); break;
+					case FLOW_TYPE_UDP: PrintFlowUDP(F, i, FlowCnt); break;
+					}
 				}
-
+				
 				Remain--;
 				FlowCnt++;
 				assert(Remain >= 0);
@@ -462,6 +471,7 @@ static void print_usage(void)
 	fprintf(stderr, "  --extract-tcp <number>      | extract FlowID <number> as a TCP stream to the output file name\n"); 
 	fprintf(stderr, "  --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest\n");
 	fprintf(stderr, "  --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
+	fprintf(stderr, "  --flow-packet-min <number>  | minimum packet count to display flow info\n"); 
 	fprintf(stderr, "\n");
 }
 
@@ -532,6 +542,13 @@ int main(int argc, char* argv[])
 				FileStdin 		= true;
 				fprintf(stderr, "writing PCAP to [%s]\n", OutputFileName);
 			}
+			// minimum number of packets 
+			else if (strcmp(argv[i], "--flow-packet-min") == 0)
+			{
+				s_FlowListPacketMin = atoi(argv[i+1]);
+				fprintf(stderr, "minimum packet count %lli\n", s_FlowListPacketMin);
+			}
+
 
 			// output file
 			else if (strcmp(argv[i], "-o") == 0)
@@ -700,7 +717,7 @@ int main(int argc, char* argv[])
 			FlowID = FlowAdd(&Flow, Pkt->Length, PCAPFile->TS);
 		}
 
-		if (s_FlowExtract[ FlowID ])
+		if ((FlowID != 0) && s_FlowExtract[ FlowID ])
 		{
 			if (OutPCAP)
 			{
