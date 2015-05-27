@@ -76,8 +76,6 @@ pcap_flows  /hitcon.pcap  --flow-packet-min 1000
 1048572 FlowID:   642798 | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  54.183.128. 64 ->  10.  5.  9.102 |  22222 ->  52940  |            16,997 Pkts         1,921,123 Bytes
 1048573 FlowID:   642638 | TCP  e0:3f:49:6a:af:a1 -> 00:10:18:72:00:3c |  10.  5.  9.102 ->  17.253.  2.226 |  63280 ->     80  |            98,135 Pkts         6,584,162 Bytes
 1048574 FlowID:   642642 | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
-
-
 ```
 
 Extract only port 80 traffic ( from hitcon.pcap to a seperate file
@@ -85,7 +83,6 @@ Extract only port 80 traffic ( from hitcon.pcap to a seperate file
 1048574 **FlowID:   642642** | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
 
 ```
-
 $ pcap_flows  hitcon.pcap  --extract 642642 -o /mnt/capture/hitcon_http.pcap --disable-display 
 
 writing PCAP to [/mnt/capture/hitcon_http.pcap]
@@ -93,7 +90,4 @@ writing PCAP to [/mnt/capture/hitcon_http.pcap]
 [02:00:30.000.332.313 0.000%] Flows:2 0.00M Pkts 0.000Gbps : 0.00GB Out:0.00GB
 [05:10:22.000.316.568 0.307%] Flows:899478 2.66M Pkts 7.419Gbps : 0.79GB Out:0.25GB
 [02:27:22.000.060.690 0.816%] Flows:1048576 9.71M Pkts 12.695Gbps : 2.16GB Out:0.25GB
-
-$
-
 ```
