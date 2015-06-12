@@ -474,6 +474,7 @@ static void print_usage(void)
 	fprintf(stderr, "  --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
 	fprintf(stderr, "  --flow-packet-min <number>  | minimum packet count to display flow info\n"); 
 	fprintf(stderr, "  --disable-display           | do not display flow information to stdout\n");
+	fprintf(stderr, "  --tcpheader                 | write timestamp/length packet header for each tcp stream chunk\n"); 
 	fprintf(stderr, "\n");
 }
 
