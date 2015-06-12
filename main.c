@@ -3,8 +3,7 @@
 // Copyright (c) 2015, fmad engineering llc 
 //
 // The MIT License (MIT) see LICENSE file for details 
-//
-// pcap flow exporter 
+// // pcap flow exporter 
 //
 //---------------------------------------------------------------------------------------------
 
@@ -86,7 +85,6 @@ typedef struct
 
 } UDPHash_t;
 
-
 double TSC2Nano = 0;
 
 //---------------------------------------------------------------------------------------------
@@ -119,6 +117,7 @@ static u32			s_ExtractTCPPortMax		= 0;
 static struct TCPStream_t* s_ExtractTCP[1024*1024]; 	// list of tcp stream extraction objects 
 
 static bool			s_EnableFlowDisplay 	= true;		// print full flow information
+static bool			s_EnableTCPHeader		= false;	// enable writing timstamp of tcp data (vs flat linear file) 
 
 //---------------------------------------------------------------------------------------------
 // mmaps a pcap file in full
@@ -530,13 +529,14 @@ int main(int argc, char* argv[])
 			// extract all tcp flows with the matching port 
 			else if (strcmp(argv[i], "--extract-tcp-port") == 0)
 			{
-				u32 Port 			= atoi(argv[i+1]);
+				u32 PortMin 			= atoi(argv[i+1]);
+				u32 PortMax 			= atoi(argv[i+2]);
 				s_ExtractTCPPortEnable 	= true;					
-				s_ExtractTCPPortMin 	= Port; 
-				s_ExtractTCPPortMax 	= Port; 
+				s_ExtractTCPPortMin 	= PortMin; 
+				s_ExtractTCPPortMax 	= PortMax; 
 				i++;
 
-				fprintf(stderr, "extract all tcp flow with port %i\n", Port);
+				fprintf(stderr, "extract all tcp flow with port %i-%i\n", PortMin, PortMax);
 			}
 			// input is from stdin 
 			else if (strcmp(argv[i], "--stdin") == 0)
@@ -562,6 +562,13 @@ int main(int argc, char* argv[])
 				OutputFileName = argv[i+1];
 				i++;
 				fprintf(stderr, "writing PCAP to [%s]\n", OutputFileName);
+			}
+			// output header in tcp stream 
+			else if (strcmp(argv[i], "--tcpheader") == 0)
+			{
+				s_EnableTCPHeader = true;	
+				i++;
+				fprintf(stderr, "writing tcp header in output files\n"); 
 			}
 			else
 			{
@@ -635,14 +642,14 @@ int main(int argc, char* argv[])
 	struct TCPStream_t* TCPStream = NULL;
 	if (s_ExtractTCPEnable)
 	{
-		TCPStream = fTCPStream_Init(kMB(128), OutputFileName);
+		TCPStream = fTCPStream_Init(kMB(128), OutputFileName, s_EnableTCPHeader);
 		if (!TCPStream) return 0;
 	}
 
 	// clear tcp output
 
 	memset(s_ExtractTCP, 0, sizeof(s_ExtractTCP));
-	printf("[%30s] FileSize: %lliGB\n", PCAPFile->Path, PCAPFile->Length / kGB(1));
+	fprintf(stderr, "[%30s] FileSize: %lliGB\n", PCAPFile->Path, PCAPFile->Length / kGB(1));
 
 	u64 TotalByte 		= 0;
 	u64 TotalPkt 		= 0;
@@ -759,8 +766,10 @@ int main(int argc, char* argv[])
 				if (Stream == NULL)
 				{
 					char FileName[1024];
-					sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
+					sprintf(FileName, "%s_%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%i->%i",
 							OutputFileName,
+
+							FormatTS(PCAPFile->TS),
 							
 							TCP->MACSrc[0],	
 							TCP->MACSrc[1],	
@@ -790,7 +799,7 @@ int main(int argc, char* argv[])
 							TCP->PortDst
 		  			);
 
-					Stream = fTCPStream_Init(kMB(128), FileName);
+					Stream = fTCPStream_Init(kMB(128), FileName, s_EnableTCPHeader);
 					s_ExtractTCP[FlowID] = Stream;
 				}
 				assert(Stream != NULL);

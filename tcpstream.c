@@ -38,10 +38,11 @@ typedef struct
 
 typedef struct TCPStream_t 
 {
-	FILE*		Output;
+	FILE*			Output;
 
-	u32			SeqNo;					// current/next expected tcp seq number
+	u32				SeqNo;					// current/next expected tcp seq number
 
+	bool			EnableHeader;			// write tcp header in output stream
 
 	u32				BufferListPos;
 	u32				BufferListMax;
@@ -49,16 +50,28 @@ typedef struct TCPStream_t
 
 } TCPStream_t;
 
+// public header output for each stream
+
+typedef struct
+{
+	u64		TS;					// timestamp of last byte	
+	u16		Length;				// number of bytes in this packet
+	u16		StreamID;			// unique id per flow
+
+} TCPOutputHeader_t;
+
 //---------------------------------------------------------------------------------------------
 
-TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName)
+TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, bool EnableHeader)
 {
 	TCPStream_t* TCPStream = malloc( sizeof( TCPStream_t) );
 	memset(TCPStream, 0, sizeof( TCPStream_t) );
 
-	TCPStream->SeqNo = 0;
-	TCPStream->BufferListPos = 0;
-	TCPStream->BufferListMax = 16*1024;
+	TCPStream->SeqNo 			= 0;
+	TCPStream->BufferListPos 	= 0;
+	TCPStream->BufferListMax 	= 16*1024;
+
+	TCPStream->EnableHeader		= EnableHeader;
 
 	TCPStream->Output = fopen(OutputName, "w");
 	if (!TCPStream->Output)
@@ -86,6 +99,15 @@ void fTCPStream_Close(struct TCPStream_t* S)
 void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload)
 {
 	S->SeqNo += Length;
+
+	if (S->EnableHeader)
+	{
+		TCPOutputHeader_t Header;
+		Header.TS 		= TS;
+		Header.Length 	= Length;
+		Header.StreamID	= 0;
+		fwrite(&Header, sizeof(Header), 1, S->Output);
+	}
 	fwrite(Payload, Length, 1, S->Output);
 }
 
@@ -105,6 +127,13 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 	else
 	{
 		u32 SeqNo = swap32( TCP->SeqNo );
+
+		// create first syn
+		if (S->SeqNo == 0)
+		{
+			fprintf(stderr, "reset seq no\n");
+			S->SeqNo = SeqNo;
+		}
 
 		s32 dSeqNo = SeqNo - S->SeqNo;
 		if (dSeqNo == 0)
@@ -154,8 +183,14 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			}
 			// output stream data
 		}
+		// drop if gap too large
+		else if (dSeqNo > 1000000)
+		{
+		}
 		else
 		{
+
+
 			TCPBuffer_t* B = (TCPBuffer_t*)malloc( sizeof(TCPBuffer_t) );
 			memset(B, 0, sizeof(TCPBuffer_t));
 
