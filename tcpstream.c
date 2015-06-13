@@ -43,6 +43,7 @@ typedef struct TCPStream_t
 	u32				SeqNo;					// current/next expected tcp seq number
 
 	bool			EnableHeader;			// write tcp header in output stream
+	u32				FlowID;					// unique flow id for this session
 
 	u32				BufferListPos;
 	u32				BufferListMax;
@@ -62,7 +63,7 @@ typedef struct
 
 //---------------------------------------------------------------------------------------------
 
-TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, bool EnableHeader)
+TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, bool EnableHeader, u32 FlowID)
 {
 	TCPStream_t* TCPStream = malloc( sizeof( TCPStream_t) );
 	memset(TCPStream, 0, sizeof( TCPStream_t) );
@@ -72,6 +73,7 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, bool EnableHeader
 	TCPStream->BufferListMax 	= 16*1024;
 
 	TCPStream->EnableHeader		= EnableHeader;
+	TCPStream->FlowID			= FlowID;
 
 	TCPStream->Output = fopen(OutputName, "w");
 	if (!TCPStream->Output)
@@ -105,7 +107,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload)
 		TCPOutputHeader_t Header;
 		Header.TS 		= TS;
 		Header.Length 	= Length;
-		Header.StreamID	= 0;
+		Header.StreamID	= S->FlowID;
 		fwrite(&Header, sizeof(Header), 1, S->Output);
 	}
 	fwrite(Payload, Length, 1, S->Output);

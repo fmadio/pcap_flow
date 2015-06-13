@@ -643,7 +643,7 @@ int main(int argc, char* argv[])
 	struct TCPStream_t* TCPStream = NULL;
 	if (s_ExtractTCPEnable)
 	{
-		TCPStream = fTCPStream_Init(kMB(128), OutputFileName, s_EnableTCPHeader);
+		TCPStream = fTCPStream_Init(kMB(128), OutputFileName, s_EnableTCPHeader, 0);
 		if (!TCPStream) return 0;
 	}
 
@@ -800,7 +800,7 @@ int main(int argc, char* argv[])
 							TCP->PortDst
 		  			);
 
-					Stream = fTCPStream_Init(kMB(128), FileName, s_EnableTCPHeader);
+					Stream = fTCPStream_Init(kMB(128), FileName, s_EnableTCPHeader, FlowID);
 					s_ExtractTCP[FlowID] = Stream;
 				}
 				assert(Stream != NULL);
