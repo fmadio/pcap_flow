@@ -17,6 +17,7 @@ Command line options
 --extract-tcp-port <start port> <end port> | extract all TCP flows with the specified port in src or dest 
 --stdin                                    | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
 --disable-display                          | do not display flow information to stdout
+--tcpheader                                | include header in tcp output stream 
 ```
 
 ###Examples
@@ -50,8 +51,7 @@ pcap_flows /mnt/capture/hitcon_small.pcap --extract-tcp-port 80 80 -o ./tmp/port
 $ ls tmp/port80* | wc -l
 20217
 
-
-w$ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29-> 10.  5.  9.102_    80-> 62374" | head
+$ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29-> 10.  5.  9.102_    80-> 62374" | head
 00000000  48 54 54 50 2f 31 2e 31  20 32 30 30 20 4f 4b 0d  |HTTP/1.1 200 OK.|
 00000010  0a 53 65 72 76 65 72 3a  20 6e 67 69 6e 78 0d 0a  |.Server: nginx..|
 00000020  44 61 74 65 3a 20 46 72  69 2c 20 30 38 20 41 75  |Date: Fri, 08 Au|
@@ -69,7 +69,7 @@ w$ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29
 
 ### TCP Output format 
 
-The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled stream contains a header which makes the outputed TCP stream "TCP Stream PCAP". The header is
+The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled TCP segment contains a header making the outputed TCP stream "TCP Stream PCAP". The header format is: 
 
 
 ```
@@ -85,7 +85,7 @@ typedef struct
 
 ```
 
-This allows parsing a TCP stream is like parsing a UDP packet stream. Each outputed TCP packet is written in-order, with no re-sends and no sequence gaps. 
+This allows parsing a TCP stream is like parsing a UDP packet stream. Each outputed TCP packet is a single reassembled TCP segment written in-order, with no re-sends and no sequence gaps. 
 
 
 ### Output
