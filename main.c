@@ -117,7 +117,7 @@ static u32			s_ExtractTCPPortMax		= 0;
 static struct TCPStream_t* s_ExtractTCP[1024*1024]; 	// list of tcp stream extraction objects 
 
 static bool			s_EnableFlowDisplay 	= true;		// print full flow information
-static bool			s_EnableTCPHeader		= false;	// enable writing timstamp of tcp data (vs flat linear file) 
+bool				g_EnableTCPHeader 		= false;	// output packet header in tcp stream
 
 //---------------------------------------------------------------------------------------------
 // mmaps a pcap file in full
@@ -465,16 +465,15 @@ static void print_usage(void)
 	fprintf(stderr, "Contact: support at fmad.io\n"); 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "  -o <filename>                             | write output to the specified file name\n");
+	fprintf(stderr, "  -o <filename>                 | write output to the specified file name\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "  --packet-max  <number>                    | only process the first <number> packets\n");
-	fprintf(stderr, "  --extract <number>                        | extract FlowID <number> into the output PCAP file\n");
-	fprintf(stderr, "  --extract-tcp <number>                    | extract FlowID <number> as a TCP stream to the output file name\n"); 
-	fprintf(stderr, "  --extract-tcp-port <min port> <max port>  | extract all TCP flows with the specified port range in src or dest\n");
-	fprintf(stderr, "  --stdin                                   | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
-	fprintf(stderr, "  --flow-packet-min <number>                | minimum packet count to display flow info\n"); 
-	fprintf(stderr, "  --disable-display                         | do not display flow information to stdout\n");
-	fprintf(stderr, "  --tcpheader                               | write timestamp/length packet header for each tcp stream chunk\n"); 
+	fprintf(stderr, "  --packet-max  <number>      | only process the first <number> packets\n");
+	fprintf(stderr, "  --extract <number>          | extract FlowID <number> into the output PCAP file\n");
+	fprintf(stderr, "  --extract-tcp <number>      | extract FlowID <number> as a TCP stream to the output file name\n"); 
+	fprintf(stderr, "  --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest\n");
+	fprintf(stderr, "  --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
+	fprintf(stderr, "  --flow-packet-min <number>  | minimum packet count to display flow info\n"); 
+	fprintf(stderr, "  --disable-display           | do not display flow information to stdout\n");
 	fprintf(stderr, "\n");
 }
 
@@ -557,19 +556,18 @@ int main(int argc, char* argv[])
 			{
 				s_EnableFlowDisplay = false;
 			}
+			// enable tcp header output 
+			else if (strcmp(argv[i], "--tcpheader") == 0)
+			{
+				g_EnableTCPHeader =true;
+				fprintf(stderr, "enabling output tcp header\n");
+			}
 			// output file
 			else if (strcmp(argv[i], "-o") == 0)
 			{
 				OutputFileName = argv[i+1];
 				i++;
 				fprintf(stderr, "writing PCAP to [%s]\n", OutputFileName);
-			}
-			// output header in tcp stream 
-			else if (strcmp(argv[i], "--tcpheader") == 0)
-			{
-				s_EnableTCPHeader = true;	
-				i++;
-				fprintf(stderr, "writing tcp header in output files\n"); 
 			}
 			else
 			{
@@ -643,14 +641,14 @@ int main(int argc, char* argv[])
 	struct TCPStream_t* TCPStream = NULL;
 	if (s_ExtractTCPEnable)
 	{
-		TCPStream = fTCPStream_Init(kMB(128), OutputFileName, s_EnableTCPHeader, 0);
+		TCPStream = fTCPStream_Init(kMB(128), OutputFileName);
 		if (!TCPStream) return 0;
 	}
 
 	// clear tcp output
 
 	memset(s_ExtractTCP, 0, sizeof(s_ExtractTCP));
-	fprintf(stderr, "[%30s] FileSize: %lliGB\n", PCAPFile->Path, PCAPFile->Length / kGB(1));
+	printf("[%30s] FileSize: %lliGB\n", PCAPFile->Path, PCAPFile->Length / kGB(1));
 
 	u64 TotalByte 		= 0;
 	u64 TotalPkt 		= 0;
@@ -767,10 +765,8 @@ int main(int argc, char* argv[])
 				if (Stream == NULL)
 				{
 					char FileName[1024];
-					sprintf(FileName, "%s_%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%i->%i",
+					sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
 							OutputFileName,
-
-							FormatTS(PCAPFile->TS),
 							
 							TCP->MACSrc[0],	
 							TCP->MACSrc[1],	
@@ -800,8 +796,12 @@ int main(int argc, char* argv[])
 							TCP->PortDst
 		  			);
 
-					Stream = fTCPStream_Init(kMB(128), FileName, s_EnableTCPHeader, FlowID);
+					Stream = fTCPStream_Init(kMB(128), FileName);
 					s_ExtractTCP[FlowID] = Stream;
+				}
+				if (Stream == NULL)
+				{
+					printf("invalid flwo: %i\n", FlowID);
 				}
 				assert(Stream != NULL);
 

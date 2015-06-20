@@ -9,14 +9,14 @@ displays flow information from pcap and can extract individual or all tcp stream
 Command line options
 
 ```
--o <filename>               | write filtered flows to the specified file name
-                            | for bulk tcp extraction this is the prefix filename
---packet-max  <number>      | only process the first <number> packets
---extract <number>          | extract FlowID <number> into the output PCAP file
---extract-tcp <number>      | extract FlowID <number> as a TCP stream to the output file name
---extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest 
---stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
---disable-display           | do not display flow information to stdout
+-o <filename>                              | write filtered flows to the specified file name
+                                           | for bulk tcp extraction this is the prefix filename
+--packet-max  <number>                     | only process the first <number> packets
+--extract <number>                         | extract FlowID <number> into the output PCAP file
+--extract-tcp <number>                     | extract FlowID <number> as a TCP stream to the output file name
+--extract-tcp-port <start port> <end port> | extract all TCP flows with the specified port in src or dest 
+--stdin                                    | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
+--disable-display                          | do not display flow information to stdout
 ```
 
 ###Examples
@@ -39,6 +39,53 @@ pcap_flows --extract 1234 raw_capture.pcap -o capture_flow_1234.pcap
 ```
 pcap_flows --extract-tcp 1234 raw_capture.pcap -o capture_flow_as_tcp1234.pcap
 ```
+
+3) extract all tcp streams from port 80 to port 128 
+
+Note: this can generate a very large number of files (one per stream) in the output directory. e.g. /tmp/tcp_stream_directory/extract_192.168.1.1-80->12345.pcap 
+
+```
+pcap_flows /mnt/capture/hitcon_small.pcap --extract-tcp-port 80 80 -o ./tmp/port80_
+
+$ ls tmp/port80* | wc -l
+20217
+
+
+w$ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29-> 10.  5.  9.102_    80-> 62374" | head
+00000000  48 54 54 50 2f 31 2e 31  20 32 30 30 20 4f 4b 0d  |HTTP/1.1 200 OK.|
+00000010  0a 53 65 72 76 65 72 3a  20 6e 67 69 6e 78 0d 0a  |.Server: nginx..|
+00000020  44 61 74 65 3a 20 46 72  69 2c 20 30 38 20 41 75  |Date: Fri, 08 Au|
+00000030  67 20 32 30 31 34 20 31  37 3a 34 39 3a 35 38 20  |g 2014 17:49:58 |
+00000040  47 4d 54 0d 0a 43 6f 6e  74 65 6e 74 2d 54 79 70  |GMT..Content-Typ|
+00000050  65 3a 20 69 6d 61 67 65  2f 6a 70 65 67 0d 0a 43  |e: image/jpeg..C|
+00000060  6f 6e 74 65 6e 74 2d 4c  65 6e 67 74 68 3a 20 31  |ontent-Length: 1|
+00000070  32 32 33 32 0d 0a 43 6f  6e 6e 65 63 74 69 6f 6e  |2232..Connection|
+00000080  3a 20 63 6c 6f 73 65 0d  0a 4c 61 73 74 2d 4d 6f  |: close..Last-Mo|
+00000090  64 69 66 69 65 64 3a 20  54 75 65 2c 20 32 39 20  |dified: Tue, 29 |
+
+
+```
+
+
+### TCP Output format 
+
+The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled stream contains a header which makes the outputed TCP stream "TCP Stream PCAP". The header is
+
+
+```
+
+typedef struct
+{
+    u64     TS;                 // nanoseccond timestamp 
+    u16     Length;             // number of bytes in this packet
+    u16     StreamID;           // unique id per flow
+
+} TCPOutputHeader_t;
+
+
+```
+
+This allows parsing a TCP stream is like parsing a UDP packet stream. Each outputed TCP packet is written in-order, with no re-sends and no sequence gaps. 
 
 
 ### Output
