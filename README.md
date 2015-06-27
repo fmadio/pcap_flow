@@ -15,6 +15,8 @@ Command line options
 --extract <number>                         | extract FlowID <number> into the output PCAP file
 --extract-tcp <number>                     | extract FlowID <number> as a TCP stream to the output file name
 --extract-tcp-port <start port> <end port> | extract all TCP flows with the specified port in src or dest 
+--extract-ip 1.2.3.4/255.255.255.255       | extract all IP`s matching the sepcificed mask into the output PCAP
+--extract-port <start port> <end port>     | extract all UDP/TCP packets matching the range into a seperate PCAP 
 --stdin                                    | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
 --disable-display                          | do not display flow information to stdout
 --tcpheader                                | include header in tcp output stream 
@@ -69,7 +71,7 @@ $ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29-
 
 ### TCP Output format 
 
-The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled TCP segment contains a header making the outputed TCP stream "TCP Stream PCAP". The header format is: 
+The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled TCP segment contains a header. The header format is: 
 
 
 ```

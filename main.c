@@ -3,7 +3,8 @@
 // Copyright (c) 2015, fmad engineering llc 
 //
 // The MIT License (MIT) see LICENSE file for details 
-// // pcap flow exporter 
+// 
+// pcap flow exporter 
 //
 //---------------------------------------------------------------------------------------------
 
@@ -115,6 +116,14 @@ static bool			s_ExtractTCPPortEnable 	= false;	// extract all tcp flows with the
 static u32			s_ExtractTCPPortMin		= 0;
 static u32			s_ExtractTCPPortMax		= 0;
 static struct TCPStream_t* s_ExtractTCP[1024*1024]; 	// list of tcp stream extraction objects 
+
+static bool			s_ExtractIPEnable		= false;	// extract an IP range into a seperate pcap file
+static u32			s_ExtractIPMask			= 0;		// /32 mask
+static u32			s_ExtractIPMatch		= 0;		// match 
+
+static bool			s_ExtractPortEnable		= false;	// extract TCP/UDP port range to a seperate pcap file 
+static u32			s_ExtractPortMin		= 0;		// min port range 
+static u32			s_ExtractPortMax		= 0;		// max port range 
 
 static bool			s_EnableFlowDisplay 	= true;		// print full flow information
 bool				g_EnableTCPHeader 		= false;	// output packet header in tcp stream
@@ -516,6 +525,73 @@ int main(int argc, char* argv[])
 				s_FlowExtractEnable 	= true;
 				i++;
 			}
+			// extract the specified ip range into a seperate pcap 
+			else if (strcmp(argv[i], "--extract-ip") == 0)
+			{
+				// in the form of 192.168.1.1/255.255.255.255
+				char* IPRange 		= argv[i+1];
+				i++;
+
+				u8 Segment[8][256];
+				u32 SegmentPos = 0;
+				u32 SegmentLen = 0;
+				for (int p=0; p < strlen(IPRange); p++)
+				{
+					u8 c = IPRange[p];
+					if ((c == '.') || (c == '/'))
+					{
+						Segment[SegmentPos][SegmentLen] = 0;
+						//printf("seg len: %i %i : %s\n", SegmentPos, SegmentLen, Segment[SegmentPos]);
+
+						SegmentPos++;
+						SegmentLen = 0;
+					}
+					else
+					{
+						Segment[SegmentPos][SegmentLen] = c;
+						SegmentLen++;
+					}
+				}
+
+				u32 IP[4];
+				u32 Mask[4];
+
+				IP[0] = atoi(Segment[0]);
+				IP[1] = atoi(Segment[1]);
+				IP[2] = atoi(Segment[2]);
+				IP[3] = atoi(Segment[3]);
+
+				Mask[0] = atoi(Segment[4]);
+				Mask[1] = atoi(Segment[5]);
+				Mask[2] = atoi(Segment[6]);
+				Mask[3] = atoi(Segment[7]);
+
+				fprintf(stderr, "extract ip range %i.%i.%i.%i/%i.%i.%i.%i\n", 
+						IP[0],
+						IP[1],
+						IP[2],
+						IP[3],
+
+						Mask[0],
+						Mask[1],
+						Mask[2],
+						Mask[3]);
+
+				s_ExtractIPEnable 	= true;
+				s_ExtractIPMatch	= (IP[0] << 0) | (IP[1] << 8) | (IP[2] << 16) | (IP[3] << 24);
+				s_ExtractIPMask		= (Mask[0] << 0) | (Mask[1] << 8) | (Mask[2] << 16) | (Mask[3] << 24);
+			}
+			// extract all packets with the specified udp port 
+			else if (strcmp(argv[i], "--extract-port") == 0)
+			{
+				s_ExtractPortEnable 	= true;
+				s_ExtractPortMin		= atoi(argv[i+1]); 
+				s_ExtractPortMax		= atoi(argv[i+2]); 
+				i+= 2;
+
+				fprintf(stderr, "extract port range: %i-%i\n", s_ExtractPortMin, s_ExtractPortMax);
+			}
+
 			// extract the specified flow as tcp stream
 			else if (strcmp(argv[i], "--extract-tcp") == 0)
 			{
@@ -812,6 +888,71 @@ int main(int argc, char* argv[])
 
 				fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
 			}
+		}
+
+		// extract all IP`s that match the mask
+
+		if (s_ExtractIPEnable)
+		{
+			IP4Header_t* IP4 = PCAPIP4Header(Pkt); 
+
+			bool Extract = false;
+
+			if ((IP4->Src.IP4 & s_ExtractIPMask) == s_ExtractIPMatch)
+			{
+				Extract = true;
+			}
+			if ((IP4->Dst.IP4 & s_ExtractIPMask) == s_ExtractIPMatch)
+			{
+				Extract = true;
+			}
+
+			if (Extract && OutPCAP)
+			{
+				fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
+				OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+			}
+		}
+
+		// extract UDP port
+
+		if (s_ExtractPortEnable)
+		{
+			bool Extract = false;
+			u32 PortSrc = 0;
+			u32 PortDst = 0;
+			if (Flow.Type == FLOW_TYPE_UDP)
+			{
+				UDPHeader_t* UDP = PCAPUDPHeader(Pkt); 
+
+				PortSrc = swap16(UDP->PortSrc);
+				PortDst = swap16(UDP->PortDst);
+			}
+			if (Flow.Type == FLOW_TYPE_TCP)
+			{
+				TCPHeader_t* TCP = PCAPTCPHeader(Pkt); 
+
+				PortSrc = swap16(TCP->PortSrc);
+				PortDst = swap16(TCP->PortDst);
+			}
+
+			if ((s_ExtractPortMin <= PortSrc) && 
+				(PortSrc <= s_ExtractPortMax))
+			{
+				Extract = true;
+			}
+
+			if ((s_ExtractPortMin <= PortDst) && 
+				(PortDst <= s_ExtractPortMax))
+			{
+				Extract = true;
+			}
+			if (Extract && OutPCAP)
+			{
+				fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
+				OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+			}
+
 		}
 
 		TotalPkt++;
