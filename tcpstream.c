@@ -40,9 +40,10 @@ typedef struct
 
 typedef struct TCPStream_t 
 {
-	int			fd;
+	int				fd;
 
-	u32			SeqNo;					// current/next expected tcp seq number
+	u32				SeqNo;					// current/next expected tcp seq number
+	u32				FlowID;					// unique flow id in this pcap
 
 
 	u32				BufferListPos;
@@ -80,7 +81,7 @@ extern bool			g_EnableTCPHeader;
 
 //---------------------------------------------------------------------------------------------
 
-TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName)
+TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID)
 {
 	TCPStream_t* TCPStream = malloc( sizeof( TCPStream_t) );
 	assert(TCPStream != NULL);
@@ -92,6 +93,8 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName)
 
 	strncpy(TCPStream->Path, OutputName, sizeof(TCPStream->Path));
 	TCPStream->fd = -1; 
+
+	TCPStream->FlowID = FlowID;
 
 	// init cache
 	if (!s_StreamCacheInit)
@@ -179,7 +182,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload)
 		TCPOutputHeader_t Header;
 		Header.TS 		= TS;
 		Header.Length 	= Length;
-		Header.StreamID	= 0;
+		Header.StreamID	= S->FlowID;
 		rlen = write(S->fd, &Header, sizeof(Header));
 	}
 
