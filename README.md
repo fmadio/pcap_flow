@@ -41,7 +41,7 @@ pcap_flows --extract 1234 raw_capture.pcap -o capture_flow_1234.pcap
 pcap_flows --extract-tcp 1234 raw_capture.pcap -o capture_flow_as_tcp1234.pcap
 ```
 
-3) extract all tcp streams from port 80 to port 128 
+3) extract all tcp streams from port 80 to port 80 
 
 Note: this can generate a very large number of files (one per stream) in the output directory. e.g. /tmp/tcp_stream_directory/extract_192.168.1.1-80->12345.pcap 
 
