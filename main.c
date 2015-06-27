@@ -465,15 +465,15 @@ static void print_usage(void)
 	fprintf(stderr, "Contact: support at fmad.io\n"); 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "  -o <filename>                 | write output to the specified file name\n");
+	fprintf(stderr, "  -o <filename>                            | write output to the specified file name\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "  --packet-max  <number>      | only process the first <number> packets\n");
-	fprintf(stderr, "  --extract <number>          | extract FlowID <number> into the output PCAP file\n");
-	fprintf(stderr, "  --extract-tcp <number>      | extract FlowID <number> as a TCP stream to the output file name\n"); 
-	fprintf(stderr, "  --extract-tcp-port <number> | extract all TCP flows with the specified port in src or dest\n");
-	fprintf(stderr, "  --stdin                     | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
-	fprintf(stderr, "  --flow-packet-min <number>  | minimum packet count to display flow info\n"); 
-	fprintf(stderr, "  --disable-display           | do not display flow information to stdout\n");
+	fprintf(stderr, "  --packet-max  <number>                   | only process the first <number> packets\n");
+	fprintf(stderr, "  --extract <number>                       | extract FlowID <number> into the output PCAP file\n");
+	fprintf(stderr, "  --extract-tcp <number>                   | extract FlowID <number> as a TCP stream to the output file name\n"); 
+	fprintf(stderr, "  --extract-tcp-port <min port> <max port> | extract all TCP flows with the specified port in src or dest\n");
+	fprintf(stderr, "  --stdin                                  | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
+	fprintf(stderr, "  --flow-packet-min <number>               | minimum packet count to display flow info\n"); 
+	fprintf(stderr, "  --disable-display                        | do not display flow information to stdout\n");
 	fprintf(stderr, "\n");
 }
 
@@ -534,7 +534,7 @@ int main(int argc, char* argv[])
 				s_ExtractTCPPortEnable 	= true;					
 				s_ExtractTCPPortMin 	= PortMin; 
 				s_ExtractTCPPortMax 	= PortMax; 
-				i++;
+				i += 2;	
 
 				fprintf(stderr, "extract all tcp flow with port %i-%i\n", PortMin, PortMax);
 			}
