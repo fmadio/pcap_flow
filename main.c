@@ -22,6 +22,7 @@
 
 #include "fTypes.h"
 #include "tcpstream.h"
+#include "udpstream.h"
 
 //---------------------------------------------------------------------------------------------
 
@@ -62,6 +63,8 @@ typedef struct
 
 } FlowHash_t;
 
+// specific protocol hash info
+
 typedef struct
 {
 	u8		MACSrc[6];
@@ -99,34 +102,39 @@ static s64		s_TimeZoneOffset		= 0;			// local timezone
 
 static u32*		s_FlowIndex;							// 24b index into first level list 
 
-static FlowHash_t*	s_FlowList;							// statically allocated max number of flows 
-static u32			s_FlowListPos = 1;					// current allocated flow
-static u32			s_FlowListMax;						// max number of flows
+static FlowHash_t*			s_FlowList;							// statically allocated max number of flows 
+static u32					s_FlowListPos = 1;					// current allocated flow
+static u32					s_FlowListMax;						// max number of flows
 
-static u64			s_FlowListPacketMin = 0;			// minimum number of packets to show entry for
+static u64					s_FlowListPacketMin = 0;			// minimum number of packets to show entry for
 
-static u8			s_FlowExtract[1024*1024];			// boolean to extract the specified flow id
-static bool			s_FlowExtractEnable 	= false;	// indicaes flow extraction 
-static u32			s_FlowExtractMax		= 1024*1024;
+static u8					s_FlowExtract[1024*1024];			// boolean to extract the specified flow id
+static bool					s_FlowExtractEnable 	= false;	// indicaes flow extraction 
+static u32					s_FlowExtractMax		= 1024*1024;
 
-static u32			s_ExtractTCPEnable 		= false;	// request extraction of tcp stream
-static u32			s_ExtractTCPFlowID 		= 0;		// which flow to extract
+static u32					s_ExtractTCPEnable 		= false;	// request extraction of tcp stream
+static u32					s_ExtractTCPFlowID 		= 0;		// which flow to extract
 
-static bool			s_ExtractTCPPortEnable 	= false;	// extract all tcp flows with the specified port number
-static u32			s_ExtractTCPPortMin		= 0;
-static u32			s_ExtractTCPPortMax		= 0;
-static struct TCPStream_t* s_ExtractTCP[1024*1024]; 	// list of tcp stream extraction objects 
+static bool					s_ExtractTCPPortEnable 	= false;	// extract all tcp flows with the specified port number
+static u32					s_ExtractTCPPortMin		= 0;
+static u32					s_ExtractTCPPortMax		= 0;
+static struct TCPStream_t* 	s_ExtractTCP[1024*1024]; 			// list of tcp stream extraction objects 
 
-static bool			s_ExtractIPEnable		= false;	// extract an IP range into a seperate pcap file
-static u32			s_ExtractIPMask			= 0;		// /32 mask
-static u32			s_ExtractIPMatch		= 0;		// match 
+static bool					s_ExtractUDPPortEnable 	= false;	// extract all UDP flows within the specified port range 
+static u32					s_ExtractUDPPortMin		= 0;
+static u32					s_ExtractUDPPortMax		= 0;
+static struct UDPStream_t*	s_ExtractUDP[1024*1024];
 
-static bool			s_ExtractPortEnable		= false;	// extract TCP/UDP port range to a seperate pcap file 
-static u32			s_ExtractPortMin		= 0;		// min port range 
-static u32			s_ExtractPortMax		= 0;		// max port range 
+static bool					s_ExtractIPEnable		= false;	// extract an IP range into a seperate pcap file
+static u32					s_ExtractIPMask			= 0;		// /32 mask
+static u32					s_ExtractIPMatch		= 0;		// match 
 
-static bool			s_EnableFlowDisplay 	= true;		// print full flow information
-bool				g_EnableTCPHeader 		= false;	// output packet header in tcp stream
+static bool					s_ExtractPortEnable		= false;	// extract TCP/UDP port range to a seperate pcap file 
+static u32					s_ExtractPortMin		= 0;		// min port range 
+static u32					s_ExtractPortMax		= 0;		// max port range 
+
+static bool					s_EnableFlowDisplay 	= true;		// print full flow information
+bool						g_EnableTCPHeader 		= false;	// output packet header in tcp stream
 
 //---------------------------------------------------------------------------------------------
 // mmaps a pcap file in full
@@ -614,6 +622,18 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "extract all tcp flow with port %i-%i\n", PortMin, PortMax);
 			}
+			// extract udp flows within the specified range to individual files
+			else if (strcmp(argv[i], "--extract-udp-port") == 0)
+			{
+				u32 PortMin 			= atoi(argv[i+1]);
+				u32 PortMax 			= atoi(argv[i+2]);
+				s_ExtractUDPPortEnable 	= true;					
+				s_ExtractUDPPortMin 	= PortMin; 
+				s_ExtractUDPPortMax 	= PortMax; 
+			 	i += 2;	
+
+				fprintf(stderr, "extract all udp flow`s with port %i-%i\n", PortMin, PortMax);
+			}
 			// input is from stdin 
 			else if (strcmp(argv[i], "--stdin") == 0)
 			{
@@ -887,6 +907,65 @@ int main(int argc, char* argv[])
 				u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
 
 				fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
+			}
+		}
+
+		// extract all udp flows  
+
+		if (s_ExtractUDPPortEnable && (Flow.Type == FLOW_TYPE_UDP))
+		{
+			UDPHeader_t* UDPHeader 	= PCAPUDPHeader(Pkt);
+			UDPHash_t* UDP 			= (UDPHash_t*)Flow.Data;
+
+			bool Output = false; 
+			Output |= (UDP->PortSrc >= s_ExtractUDPPortMin) && (UDP->PortSrc <= s_ExtractUDPPortMax);
+			Output |= (UDP->PortDst >= s_ExtractUDPPortMin) && (UDP->PortDst <= s_ExtractUDPPortMax);
+
+			if (Output)
+			{
+				// new flow ? 	
+				struct UDPStream_t* Stream = s_ExtractUDP[FlowID];
+				if (Stream == NULL)
+				{
+					char FileName[256];
+					sprintf(FileName, "%s_%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%i->%i",
+							OutputFileName,
+
+							FormatTS(PCAPFile->TS),
+							
+							UDP->MACSrc[0],	
+							UDP->MACSrc[1],	
+							UDP->MACSrc[2],	
+							UDP->MACSrc[3],	
+							UDP->MACSrc[4],	
+							UDP->MACSrc[5],	
+	
+							UDP->MACDst[0],	
+							UDP->MACDst[1],	
+							UDP->MACDst[2],	
+							UDP->MACDst[3],	
+							UDP->MACDst[4],	
+							UDP->MACDst[5],	
+
+							UDP->IPSrc.IP[0],
+							UDP->IPSrc.IP[1],
+							UDP->IPSrc.IP[2],
+							UDP->IPSrc.IP[3],
+
+							UDP->IPDst.IP[0],
+							UDP->IPDst.IP[1],
+							UDP->IPDst.IP[2],
+							UDP->IPDst.IP[3],
+
+							UDP->PortSrc,
+							UDP->PortDst
+		  			);
+					Stream = fUDPStream_Init(FileName, FlowID);
+					s_ExtractUDP[FlowID] = Stream;
+				}
+				assert(Stream != NULL);
+
+				fUDPStream_Add(Stream, PCAPFile->TS, Pkt);
 			}
 		}
 

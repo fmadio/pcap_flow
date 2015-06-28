@@ -1,6 +1,7 @@
 OBJS =
-OBJS += main.o
 OBJS += tcpstream.o
+OBJS += udpstream.o
+OBJS += main.o
 
 DEF = 
 DEF += -O3 
