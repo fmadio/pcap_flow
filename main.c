@@ -100,13 +100,13 @@ static s64		s_TimeZoneOffset		= 0;			// local timezone
 //---------------------------------------------------------------------------------------------
 // first level index 
 
-static u32*		s_FlowIndex;							// 24b index into first level list 
+static u32*					s_FlowIndex;						// 24b index into first level list 
 
 static FlowHash_t*			s_FlowList;							// statically allocated max number of flows 
 static u32					s_FlowListPos = 1;					// current allocated flow
 static u32					s_FlowListMax;						// max number of flows
 
-static u64					s_FlowListPacketMin = 0;			// minimum number of packets to show entry for
+static u64					s_FlowListPacketMin 	= 0;		// minimum number of packets to show entry for
 
 static u8					s_FlowExtract[1024*1024];			// boolean to extract the specified flow id
 static bool					s_FlowExtractEnable 	= false;	// indicaes flow extraction 
@@ -141,6 +141,7 @@ bool						g_EnableTCPHeader 		= false;	// output packet header in tcp stream
 static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
 {
 	PCAPFile_t* F = (PCAPFile_t*)malloc( sizeof(PCAPFile_t) );
+	assert(F != NULL);
 	memset(F, 0, sizeof(PCAPFile_t));
 	F->Path		= Path;
 
@@ -180,6 +181,7 @@ static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
 
 		Header = &Header1;
 		F->PacketBuffer	= malloc(32*1024);
+		assert(F->PacketBuffer != NULL);
 	}
 
 	switch (Header->Magic)
@@ -488,6 +490,7 @@ static void print_usage(void)
 	fprintf(stderr, "  --extract <number>                       | extract FlowID <number> into the output PCAP file\n");
 	fprintf(stderr, "  --extract-tcp <number>                   | extract FlowID <number> as a TCP stream to the output file name\n"); 
 	fprintf(stderr, "  --extract-tcp-port <min port> <max port> | extract all TCP flows with the specified port in src or dest\n");
+	fprintf(stderr, "  --extract-tcp-all                        | extract all TCP flows\n");
 	fprintf(stderr, "  --stdin                                  | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
 	fprintf(stderr, "  --flow-packet-min <number>               | minimum packet count to display flow info\n"); 
 	fprintf(stderr, "  --disable-display                        | do not display flow information to stdout\n");
@@ -622,6 +625,15 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "extract all tcp flow with port %i-%i\n", PortMin, PortMax);
 			}
+			// extract all tcp flows 
+			else if (strcmp(argv[i], "--extract-tcp-all") == 0)
+			{
+				s_ExtractTCPPortEnable 	= true;					
+				s_ExtractTCPPortMin 	= 0; 
+				s_ExtractTCPPortMax 	= 0xffff; 
+				fprintf(stderr, "extract all tcp flow with port %i-%i\n", s_ExtractTCPPortMin, s_ExtractTCPPortMax);
+			}
+
 			// extract udp flows within the specified range to individual files
 			else if (strcmp(argv[i], "--extract-udp-port") == 0)
 			{
@@ -723,10 +735,12 @@ int main(int argc, char* argv[])
 	s_TimeZoneOffset = lt.tm_gmtoff * 1e9;
 
 	s_FlowIndex = (u32*)malloc( sizeof(u32)*(1ULL<<24));
+	assert(s_FlowIndex  != NULL);
 	memset(s_FlowIndex, 0, sizeof(u32)*(1ULL<<24));
 
 	s_FlowListMax = 10e6;
 	s_FlowList = (FlowHash_t*)malloc( sizeof(FlowHash_t) * s_FlowListMax ); memset(s_FlowList, 0, sizeof(FlowHash_t) * s_FlowListMax );
+	assert(s_FlowList != NULL);
 	
 	// open pcap diff files
 
@@ -1074,7 +1088,6 @@ int main(int argc, char* argv[])
 	fTCPStream_Close(TCPStream);
 
 	if (s_EnableFlowDisplay) PrintHumanFlows();	
-
 }
 
 /* vim: set ts=4 sts=4 */
