@@ -48,7 +48,7 @@ typedef struct TCPStream_t
 
 	u32				BufferListPos;
 	u32				BufferListMax;
-	TCPBuffer_t*	BufferList[16*1024];
+	TCPBuffer_t*	BufferList[1*1024];
 
 	char			Path[1024];				// full path 
 	u64				LastTSC;				// cycle counter when this file was last accessed 
@@ -69,6 +69,12 @@ typedef struct
 	u16		StreamID;			// unique id per flow
 
 } TCPOutputHeader_t;
+
+//---------------------------------------------------------------------------------------------
+
+extern u64			g_TotalMemory;
+extern u64			g_TotalMemoryTCP;
+extern bool			g_Verbose;
 
 //---------------------------------------------------------------------------------------------
 
@@ -95,10 +101,11 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID)
 	TCPStream_t* TCPStream = malloc( sizeof( TCPStream_t) );
 	assert(TCPStream != NULL);
 	memset(TCPStream, 0, sizeof( TCPStream_t) );
+	g_TotalMemory += sizeof( TCPStream_t);
 
 	TCPStream->SeqNo = 0;
 	TCPStream->BufferListPos = 0;
-	TCPStream->BufferListMax = 16*1024;
+	TCPStream->BufferListMax = 1*1024;
 
 	strncpy(TCPStream->Path, OutputName, sizeof(TCPStream->Path));
 	TCPStream->fd = -1; 
@@ -184,7 +191,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload)
 	{
 		// evict an old stream	
 		fTCPStream_Open(S);	
-		fprintf(stderr, "[%s] open file\n", FormatTS(TS));
+		//fprintf(stderr, "[%s] open file\n", FormatTS(TS));
 	}
 	S->SeqNo += Length;
 
@@ -210,7 +217,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 {
 	if (TCP_FLAG_SYN(TCP->Flags))
 	{
-		fprintf(stderr, "[%s] [%s] got syn\n", FormatTS(TS), S->Path);
+		if (g_Verbose) printf("[%s] [%s] got syn\n", FormatTS(TS), S->Path);
 		S->SeqNo = swap32(TCP->SeqNo) + 1;
 
 		// release all reassembly buffer data . assumption is this is now a new tcp stream
@@ -244,7 +251,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 
 			if (S->BufferListPos > 0)
 			{
-				fprintf(stderr, "[%s] [%s] resend hit Seq:%08x : %i\n", FormatTS(TS), S->Path, SeqNo, S->BufferListPos);
+				if (g_Verbose) printf("[%s] [%s] resend hit Seq:%08x : %i\n", FormatTS(TS), S->Path, SeqNo, S->BufferListPos);
 
 				// check for reassembly
 				while (true)
@@ -255,14 +262,14 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 						TCPBuffer_t* Buffer = S->BufferList[i];
 						if (Buffer->SeqNo == S->SeqNo)
 						{
-							fprintf(stderr, "[%s] [%s] reassembly hit Seq:%08x:%08x : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, S->SeqNo + Buffer->Length, S->BufferListPos, Length);
+							if (g_Verbose) printf("[%s] [%s] reassembly hit Seq:%08x:%08x : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, S->SeqNo + Buffer->Length, S->BufferListPos, Length);
 							fTCPStream_OutputPayload(S, TS, Buffer->Length, Buffer->Payload);
 							Hit = true;
 						}
 						// redundant packet
 						else if (Buffer->SeqNo < S->SeqNo)
 						{
-							fprintf(stderr, "[%s] [%s] redundant packet hit Seq:%08x BufferSeq:%08x : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, Buffer->SeqNo, S->BufferListPos);
+							if (g_Verbose) printf("[%s] [%s] redundant packet hit Seq:%08x BufferSeq:%08x : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, Buffer->SeqNo, S->BufferListPos);
 							Hit = true;
 						}
 
@@ -295,13 +302,16 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			s32 dRemain = (SeqNo + Length) - S->SeqNo;
 			if ((SeqNo < S->SeqNo) && (dRemain > 0) && (dRemain < 1500))
 			{
-				fprintf(stderr, "[%s] [%s] unaligned seq resend: %i [%llx:%llx]\n",
+				if (g_Verbose) 
+				{
+					printf("[%s] [%s] unaligned seq resend: %i [%llx:%llx]\n",
 						FormatTS(TS),
 						S->Path,
 						dRemain,
 						S->WritePos,
 						S->WritePos + dRemain
 					   );
+				}
 
 				s32 PayloadOffset = S->SeqNo - SeqNo; 
 				assert(PayloadOffset > 0);
@@ -315,6 +325,8 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 				assert(B != NULL);
 				s_TCPBufferMemoryTotal  += sizeof(TCPBuffer_t) + Length;
 				s_TCPBufferPacketTotal 	+= 1;
+				g_TotalMemory 			+= sizeof(TCPBuffer_t) + Length;
+				g_TotalMemoryTCP 		+= sizeof(TCPBuffer_t) + Length;
 
 				memset(B, 0, sizeof(TCPBuffer_t));
 				assert(Length < MAX_TCPSEGMENT);
@@ -329,7 +341,9 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 
 				S->BufferList[ S->BufferListPos++ ] = B;	
 
-				fprintf(stderr, "[%s] [%s] tcp gap Seq:%08x PktSeq:%08x delta %i OOPkts:%i SEnd:%08x\n", 
+				if (g_Verbose)
+				{
+					printf("[%s] [%s] tcp gap Seq:%08x PktSeq:%08x delta %i OOPkts:%i SEnd:%08x\n", 
 						FormatTS(TS), 
 						S->Path, 
 						S->SeqNo, 
@@ -337,12 +351,13 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 						dSeqNo,
 						S->BufferListPos,
 						SeqNo + Length);
-				fprintf(stderr, "[%s] TCP Buffer: %lliMB %.fK Pkts\n", FormatTS(TS), s_TCPBufferMemoryTotal / kMB(1), s_TCPBufferPacketTotal / 1e3 ); 
+					printf("[%s] TCP Buffer: %lliMB %.fK Pkts\n", FormatTS(TS), s_TCPBufferMemoryTotal / kMB(1), s_TCPBufferPacketTotal / 1e3 ); 
+				}
 
 				// special case when capture begins mid-stream
 				if (S->SeqNo == 0)
 				{
-					fprintf(stderr, "[%s] %s midstream start Len:%i\n", FormatTS(TS), S->Path, Length); 
+					if (g_Verbose) printf("[%s] %s midstream start Len:%i\n", FormatTS(TS), S->Path, Length); 
 					S->SeqNo = swap32(TCP->SeqNo) + Length;
 				}	
 			}

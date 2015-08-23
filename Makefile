@@ -12,6 +12,7 @@ DEF += -g
 
 LIBS =
 LIBS += -lm
+LIBS += -lpthread
 
 %.o: %.c
 	gcc $(DEF) -c -o $@ -g $<

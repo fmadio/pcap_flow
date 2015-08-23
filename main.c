@@ -19,6 +19,8 @@
 #include <sys/shm.h>
 #include <fcntl.h>
 #include <locale.h>
+#include <linux/sched.h>
+#include <pthread.h>
 
 #include "fTypes.h"
 #include "tcpstream.h"
@@ -94,8 +96,11 @@ double TSC2Nano = 0;
 //---------------------------------------------------------------------------------------------
 // tunables
 
-static u64		s_MaxPackets			= (1ULL<<63);	// max number of packets to process
-static s64		s_TimeZoneOffset		= 0;			// local timezone
+static u64		s_MaxPackets			= (1ULL<<63);			// max number of packets to process
+static s64		s_TimeZoneOffset		= 0;					// local timezone
+u64				g_TotalMemory			= 0;					// total memory consumption
+u64				g_TotalMemoryTCP		= 0;					// total memory of keeping out of order tcp packets 
+bool			g_Verbose				= false;				// verbose print mode
 
 //---------------------------------------------------------------------------------------------
 // first level index 
@@ -120,6 +125,11 @@ static u32					s_ExtractTCPPortMin		= 0;
 static u32					s_ExtractTCPPortMax		= 0;
 static struct TCPStream_t* 	s_ExtractTCP[1024*1024]; 			// list of tcp stream extraction objects 
 
+static bool					s_DisableTCPPortEnable 	= false;	// extract all tcp flows with the specified port number
+static u32					s_DisableTCPPortMin		= 0;
+static u32					s_DisableTCPPortMax		= 0;
+static struct TCPStream_t* 	s_DisableTCP[1024*1024]; 			// list of tcp stream extraction objects 
+
 static bool					s_ExtractUDPPortEnable 	= false;	// extract all UDP flows within the specified port range 
 static u32					s_ExtractUDPPortMin		= 0;
 static u32					s_ExtractUDPPortMax		= 0;
@@ -135,6 +145,9 @@ static u32					s_ExtractPortMax		= 0;		// max port range
 
 static bool					s_EnableFlowDisplay 	= true;		// print full flow information
 bool						g_EnableTCPHeader 		= false;	// output packet header in tcp stream
+
+static bool					s_EnableFlowLog			= true;		// write flow log in realtime
+static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 
 //---------------------------------------------------------------------------------------------
 // mmaps a pcap file in full
@@ -278,6 +291,76 @@ static UDPHeader_t* PCAPUDPHeader(PCAPPacket_t* Pkt)
 }
 
 //---------------------------------------------------------------------------------------------
+static void PrintMAC(FILE* Out, u8* MAC)
+{
+	fprintf(Out, "%02x:%02x:%02x:%02x:%02x:%02x",
+			MAC[0],
+			MAC[1],
+			MAC[2],
+			MAC[3],
+			MAC[4],
+			MAC[5]
+		  );
+}
+
+static void PrintIP4(FILE* Out, IP4_t IP)
+{
+	fprintf(Out, "%3i.%3i.%3i.%3i", IP.IP[0], IP.IP[1], IP.IP[2], IP.IP[3]); 
+}
+
+//---------------------------------------------------------------------------------------------
+
+static void PrintFlowTCP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
+{
+
+	TCPHash_t* TCP = (TCPHash_t*)F->Data;
+	fprintf(Out, "%5i FlowID: %8i | TCP  ", FlowCnt, FlowID); 	
+	PrintMAC(Out, TCP->MACSrc);
+	fprintf(Out, " -> ");
+	PrintMAC(Out, TCP->MACDst);
+
+	fprintf(Out, " | ");
+	PrintIP4(Out, TCP->IPSrc);
+	fprintf(Out, " -> ");
+	PrintIP4(Out, TCP->IPDst);
+
+	fprintf(Out, " | %6i -> %6i ", TCP->PortSrc, TCP->PortDst);
+
+	fprintf(Out, " | ");
+	fprintf(Out, " %'16lld Pkts ", F->PktCnt);
+	fprintf(Out, " %'16lli Bytes ", F->Bytes);
+
+	fprintf(Out, "\n");
+}
+
+//---------------------------------------------------------------------------------------------
+
+static void PrintFlowUDP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
+{
+
+	UDPHash_t* UDP = (UDPHash_t*)F->Data;
+	fprintf(Out, "%5i FlowID: %8i | UDP  ", FlowCnt, FlowID); 	
+	PrintMAC(Out, UDP->MACSrc);
+	fprintf(Out, " -> ");
+	PrintMAC(Out, UDP->MACDst);
+
+	fprintf(Out, " | ");
+	PrintIP4(Out, UDP->IPSrc);
+	fprintf(Out, " -> ");
+	PrintIP4(Out, UDP->IPDst);
+
+	fprintf(Out, " | %6i -> %6i ", UDP->PortSrc, UDP->PortDst);
+
+	fprintf(Out, " | ");
+	fprintf(Out, " %'16lld Pkts ", F->PktCnt);
+	fprintf(Out, " %'16lli Bytes ", F->Bytes);
+
+	fprintf(Out, "\n");
+}
+
+
+
+//---------------------------------------------------------------------------------------------
 static u32 FlowHash(u32 Type, u8* Payload, u32 Length)
 {
 	// DEK packets usually have enough entropy for this to be enough 
@@ -304,6 +387,7 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 	u32 Index 	= Hash & 0x00ffffff;
 
 	u32 FlowIndex = 0;
+	bool IsFlowNew = false;
 
 	if (s_FlowIndex[Index] != 0)
 	{
@@ -336,6 +420,8 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 			F->Next = s_FlowIndex[Index];
 
 			s_FlowIndex[Index] = F - s_FlowList;
+
+			IsFlowNew = true; 
 		}
 	}
 	else
@@ -347,6 +433,7 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 		F->Next = 0;
 
 		s_FlowIndex[Index] = F - s_FlowList; 
+		IsFlowNew = true; 
 	}
 
 	// update stats
@@ -354,77 +441,18 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 	F->PktCnt++;
 	F->Bytes += PktLength;
 
+
+	// update flow log
+	if (IsFlowNew && s_EnableFlowLog)
+	{
+		u32 ID = F - s_FlowList;
+		switch (F->Type)
+		{
+		case FLOW_TYPE_TCP: PrintFlowTCP(s_FlowLogFile, F, ID, s_FlowListPos); break;
+		case FLOW_TYPE_UDP: PrintFlowUDP(s_FlowLogFile, F, ID, s_FlowListPos); break;
+		}
+	}
 	return F - s_FlowList;
-}
-
-
-//---------------------------------------------------------------------------------------------
-static void PrintMAC(u8* MAC)
-{
-	printf("%02x:%02x:%02x:%02x:%02x:%02x",
-			MAC[0],
-			MAC[1],
-			MAC[2],
-			MAC[3],
-			MAC[4],
-			MAC[5]
-		  );
-}
-static void PrintIP4(IP4_t IP)
-{
-	printf("%3i.%3i.%3i.%3i", IP.IP[0], IP.IP[1], IP.IP[2], IP.IP[3]); 
-}
-
-//---------------------------------------------------------------------------------------------
-
-static void PrintFlowTCP(FlowHash_t* F, u32 FlowID, u32 FlowCnt)
-{
-
-	TCPHash_t* TCP = (TCPHash_t*)F->Data;
-	printf("%5i FlowID: %8i | TCP  ", FlowCnt, FlowID); 	
-	PrintMAC(TCP->MACSrc);
-	printf(" -> ");
-	PrintMAC(TCP->MACDst);
-
-	printf(" | ");
-	PrintIP4(TCP->IPSrc);
-	printf(" -> ");
-	PrintIP4(TCP->IPDst);
-
-	printf(" | %6i -> %6i ", TCP->PortSrc, TCP->PortDst);
-
-	printf(" | ");
-	printf(" %'16lld Pkts ", F->PktCnt);
-	printf(" %'16lli Bytes ", F->Bytes);
-
-	printf("\n");
-
-}
-
-//---------------------------------------------------------------------------------------------
-
-static void PrintFlowUDP(FlowHash_t* F, u32 FlowID, u32 FlowCnt)
-{
-
-	UDPHash_t* UDP = (UDPHash_t*)F->Data;
-	printf("%5i FlowID: %8i | UDP  ", FlowCnt, FlowID); 	
-	PrintMAC(UDP->MACSrc);
-	printf(" -> ");
-	PrintMAC(UDP->MACDst);
-
-	printf(" | ");
-	PrintIP4(UDP->IPSrc);
-	printf(" -> ");
-	PrintIP4(UDP->IPDst);
-
-	printf(" | %6i -> %6i ", UDP->PortSrc, UDP->PortDst);
-
-	printf(" | ");
-	printf(" %'16lld Pkts ", F->PktCnt);
-	printf(" %'16lli Bytes ", F->Bytes);
-
-	printf("\n");
-
 }
 
 //---------------------------------------------------------------------------------------------
@@ -454,8 +482,8 @@ static void PrintHumanFlows(void)
 				{
 					switch (F->Type)
 					{
-					case FLOW_TYPE_TCP: PrintFlowTCP(F, i, FlowCnt); break;
-					case FLOW_TYPE_UDP: PrintFlowUDP(F, i, FlowCnt); break;
+					case FLOW_TYPE_TCP: PrintFlowTCP(stdout, F, i, FlowCnt); break;
+					case FLOW_TYPE_UDP: PrintFlowUDP(stdout, F, i, FlowCnt); break;
 					}
 				}
 				
@@ -494,6 +522,7 @@ static void print_usage(void)
 	fprintf(stderr, "  --stdin                                  | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
 	fprintf(stderr, "  --flow-packet-min <number>               | minimum packet count to display flow info\n"); 
 	fprintf(stderr, "  --disable-display                        | do not display flow information to stdout\n");
+	fprintf(stderr, "  --cpu <number>                           | pin thread to a specific CPU\n"); 
 	fprintf(stderr, "\n");
 }
 
@@ -630,8 +659,20 @@ int main(int argc, char* argv[])
 			{
 				s_ExtractTCPPortEnable 	= true;					
 				s_ExtractTCPPortMin 	= 0; 
-				s_ExtractTCPPortMax 	= 0xffff; 
+				s_ExtractTCPPortMax 	= 0x10000; 
 				fprintf(stderr, "extract all tcp flow with port %i-%i\n", s_ExtractTCPPortMin, s_ExtractTCPPortMax);
+			}
+			// disable port range 
+			else if (strcmp(argv[i], "--disable-tcp-port") == 0)
+			{
+				u32 PortMin 			= atoi(argv[i+1]);
+				u32 PortMax 			= atoi(argv[i+2]);
+				s_DisableTCPPortEnable 	= true;					
+				s_DisableTCPPortMin 	= PortMin; 
+				s_DisableTCPPortMax 	= PortMax; 
+				i += 2;	
+
+				fprintf(stderr, "disable tcp extraction on ports %i-%i\n", PortMin, PortMax);
 			}
 
 			// extract udp flows within the specified range to individual files
@@ -677,6 +718,24 @@ int main(int argc, char* argv[])
 				i++;
 				fprintf(stderr, "writing PCAP to [%s]\n", OutputFileName);
 			}
+			// pin to a specific CPU
+			else if (strcmp(argv[i], "--cpu") == 0)
+			{
+				u32 CPU 			= atoi(argv[i+1]);
+				i++;
+
+				// pin to a thread
+				cpu_set_t	MainCPUS;
+				CPU_ZERO(&MainCPUS);
+				CPU_SET(CPU, &MainCPUS);
+				pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &MainCPUS);
+			}
+			else if (strcmp(argv[i], "--verbose") == 0)
+			{
+				fprintf(stderr, "enable verbose mode\n");
+				g_Verbose = true;
+			}
+
 			else
 			{
 				fprintf(stderr, "unknown option [%s]\n", argv[i]);
@@ -720,6 +779,19 @@ int main(int argc, char* argv[])
 
 		fwrite(&Header, sizeof(Header), 1, OutPCAP);
 	}
+	
+	// open flow log file 
+	if (s_EnableFlowLog)
+	{
+		char Path[1024];
+		sprintf(Path, "%s.flow", OutputFileName	);
+		s_FlowLogFile = fopen(Path, "w");
+		if (!s_FlowLogFile )
+		{
+			fprintf(stderr, "failed to create flow log\n");
+			return 0; 
+		}
+	}
 
 	// calcuate tsc frequency
 	CycleCalibration();
@@ -737,10 +809,13 @@ int main(int argc, char* argv[])
 	s_FlowIndex = (u32*)malloc( sizeof(u32)*(1ULL<<24));
 	assert(s_FlowIndex  != NULL);
 	memset(s_FlowIndex, 0, sizeof(u32)*(1ULL<<24));
+	g_TotalMemory 		+= sizeof(u32)*(1ULL<<24);
 
-	s_FlowListMax = 10e6;
-	s_FlowList = (FlowHash_t*)malloc( sizeof(FlowHash_t) * s_FlowListMax ); memset(s_FlowList, 0, sizeof(FlowHash_t) * s_FlowListMax );
+	s_FlowListMax 		= 100e3;
+	s_FlowList 			= (FlowHash_t*)malloc( sizeof(FlowHash_t) * s_FlowListMax ); 
+	memset(s_FlowList, 0, sizeof(FlowHash_t) * s_FlowListMax );
 	assert(s_FlowList != NULL);
+	g_TotalMemory 		+= sizeof(FlowHash_t) * s_FlowListMax;
 	
 	// open pcap diff files
 
@@ -867,6 +942,20 @@ int main(int argc, char* argv[])
 			bool Output = false; 
 			Output |= (TCP->PortSrc >= s_ExtractTCPPortMin) && (TCP->PortSrc <= s_ExtractTCPPortMax);
 			Output |= (TCP->PortDst >= s_ExtractTCPPortMin) && (TCP->PortDst <= s_ExtractTCPPortMax);
+
+			// disable port range
+
+			if (s_DisableTCPPortEnable)
+			{
+				if ((TCP->PortSrc >= s_DisableTCPPortMin) && (TCP->PortSrc <= s_DisableTCPPortMax))
+				{
+					Output = false;	
+				}
+				if ((TCP->PortDst >= s_DisableTCPPortMin) && (TCP->PortDst <= s_DisableTCPPortMax))
+				{
+					Output = false;	
+				}
+			}
 			
 			if (Output)
 			{
@@ -1077,6 +1166,8 @@ int main(int argc, char* argv[])
 					TotalByte / 1e9
 			);
 			fprintf(stderr, "Out:%.2fGB ", OutputByte / 1e9);
+			fprintf(stderr, "Memory:%.2fMB ", g_TotalMemory / 1e6); 
+			fprintf(stderr, "MemoryTCP:%.2fMB ", g_TotalMemoryTCP / 1e6); 
 
 			fprintf(stderr, "\n");
 			if (TotalPkt > s_MaxPackets) break;
