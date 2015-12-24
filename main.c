@@ -512,7 +512,8 @@ static void print_usage(void)
 	fprintf(stderr, "Contact: support at fmad.io\n"); 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Options:\n");
-	fprintf(stderr, "  -o <filename>                            | write output to the specified file name\n");
+	fprintf(stderr, "  --output-tcp <filename>                  | write TCP output to the specified file name\n");
+	fprintf(stderr, "  --output-udp <filename>                  | write UDP output to the specified file name\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "  --packet-max  <number>                   | only process the first <number> packets\n");
 	fprintf(stderr, "  --extract <number>                       | extract FlowID <number> into the output PCAP file\n");
@@ -534,7 +535,8 @@ int main(int argc, char* argv[])
 	char 	FileNameList[16][256];
 	int		FileStdin = false;
 
-	char* 	OutputFileName = NULL;
+	char* 	UDPOutputFileName = NULL;
+	char* 	TCPOutputFileName = NULL;
 
 	memset(s_FlowExtract, 0, sizeof(s_FlowExtract));
 
@@ -674,7 +676,6 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "disable tcp extraction on ports %i-%i\n", PortMin, PortMax);
 			}
-
 			// extract udp flows within the specified range to individual files
 			else if (strcmp(argv[i], "--extract-udp-port") == 0)
 			{
@@ -687,12 +688,23 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "extract all udp flow`s with port %i-%i\n", PortMin, PortMax);
 			}
+			// extract udp all ports 
+			else if (strcmp(argv[i], "--extract-udp-all") == 0)
+			{
+				s_ExtractUDPPortEnable 	= true;					
+				s_ExtractUDPPortMin 	= 0; 
+				s_ExtractUDPPortMax 	= 65535; 
+
+				fprintf(stderr, "extract all udp flows\n");
+			}
+
 			// input is from stdin 
 			else if (strcmp(argv[i], "--stdin") == 0)
 			{
-				OutputFileName 	= "stdin"; 
+				TCPOutputFileName 	= "stdin"; 
+				UDPOutputFileName 	= "stdin"; 
 				FileStdin 		= true;
-				fprintf(stderr, "writing PCAP to [%s]\n", OutputFileName);
+				fprintf(stderr, "reading PCAP from stdin\n");
 			}
 			// minimum number of packets 
 			else if (strcmp(argv[i], "--flow-packet-min") == 0)
@@ -711,13 +723,21 @@ int main(int argc, char* argv[])
 				g_EnableTCPHeader =true;
 				fprintf(stderr, "enabling output tcp header\n");
 			}
-			// output file
-			else if (strcmp(argv[i], "-o") == 0)
+			// UDP output file
+			else if (strcmp(argv[i], "--output-udp") == 0)
 			{
-				OutputFileName = argv[i+1];
+				UDPOutputFileName = argv[i+1];
 				i++;
-				fprintf(stderr, "writing PCAP to [%s]\n", OutputFileName);
+				fprintf(stderr, "writing UDP PCAP to [%s]\n", UDPOutputFileName);
 			}
+			// TCP output file
+			else if (strcmp(argv[i], "--output-tcp") == 0)
+			{
+				TCPOutputFileName = argv[i+1];
+				i++;
+				fprintf(stderr, "writing TCP PCAP to [%s]\n", TCPOutputFileName);
+			}
+
 			// pin to a specific CPU
 			else if (strcmp(argv[i], "--cpu") == 0)
 			{
@@ -759,12 +779,12 @@ int main(int argc, char* argv[])
 
 	// open output file
 	FILE* OutPCAP = NULL;
-	if (OutputFileName && (!s_ExtractTCPEnable) )
+	if (TCPOutputFileName && (!s_ExtractTCPEnable) )
 	{
-		OutPCAP = fopen(OutputFileName, "w");
+		OutPCAP = fopen(TCPOutputFileName, "w");
 		if (OutPCAP == NULL)
 		{
-			fprintf(stderr, "failed to open output file [%s]\n", OutputFileName);
+			fprintf(stderr, "failed to open output file [%s]\n", TCPOutputFileName);
 			return 0;
 		}
 
@@ -784,7 +804,7 @@ int main(int argc, char* argv[])
 	if (s_EnableFlowLog)
 	{
 		char Path[1024];
-		sprintf(Path, "%s.flow", OutputFileName	);
+		sprintf(Path, "%s.flow", TCPOutputFileName	);
 		s_FlowLogFile = fopen(Path, "w");
 		if (!s_FlowLogFile )
 		{
@@ -826,7 +846,7 @@ int main(int argc, char* argv[])
 	struct TCPStream_t* TCPStream = NULL;
 	if (s_ExtractTCPEnable)
 	{
-		TCPStream = fTCPStream_Init(kMB(128), OutputFileName, s_ExtractTCPFlowID);
+		TCPStream = fTCPStream_Init(kMB(128), TCPOutputFileName, s_ExtractTCPFlowID);
 		if (!TCPStream) return 0;
 	}
 
@@ -965,7 +985,7 @@ int main(int argc, char* argv[])
 				{
 					char FileName[1024];
 					sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
-							OutputFileName,
+							TCPOutputFileName,
 							
 							TCP->MACSrc[0],	
 							TCP->MACSrc[1],	
@@ -1032,7 +1052,7 @@ int main(int argc, char* argv[])
 				{
 					char FileName[256];
 					sprintf(FileName, "%s_%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%i->%i",
-							OutputFileName,
+							UDPOutputFileName,
 
 							FormatTS(PCAPFile->TS),
 							
