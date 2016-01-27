@@ -314,7 +314,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 						TCPBuffer_t* Buffer = S->BufferList[i];
 						if (Buffer->SeqNo == S->SeqNo)
 						{
-							if (g_Verbose) printf("[%s] [%s] reassembly hit Seq:%08x:%08x : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, S->SeqNo + Buffer->Length, S->BufferListPos, Length);
+							if (g_Verbose) printf("[%s] [%s] reassembly hit Seq:%08x:%08x : %i %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, S->SeqNo + Buffer->Length, S->BufferListPos, Length);
 							fTCPStream_OutputPayload(S, TS, Buffer->Length, Buffer->Payload, S->SeqNo, 0, 0);
 							Hit = true;
 						}
