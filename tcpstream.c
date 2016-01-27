@@ -268,23 +268,26 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 		}
 
 		// indicate stream reset
-		TCPOutputHeader_t Header;
-		Header.TS 		= TS;
-		Header.Length 	= 0;
-		Header.StreamID	= S->FlowID;
-		Header.SeqNo	= 0; 
-		Header.AckNo	= 0; 
-		Header.Window	= 0; 
-		Header.Flag		= TCPHEADER_FLAG_RESET; 
-		Header.CRC		= 0;
-		Header.CRC		+= Header.TS;
-		Header.CRC		+= Header.Length;
-		Header.CRC		+= Header.StreamID;
-		Header.CRC		+= Header.SeqNo;
-		Header.CRC		+= Header.AckNo;
-		Header.CRC		+= Header.Window;
-		Header.CRC		+= Header.Flag;
-		int wlen = write(S->fd, &Header, sizeof(Header));
+		if (g_EnableTCPHeader)
+		{
+			TCPOutputHeader_t Header;
+			Header.TS 		= TS;
+			Header.Length 	= 0;
+			Header.StreamID	= S->FlowID;
+			Header.SeqNo	= 0; 
+			Header.AckNo	= 0; 
+			Header.Window	= 0; 
+			Header.Flag		= TCPHEADER_FLAG_RESET; 
+			Header.CRC		= 0;
+			Header.CRC		+= Header.TS;
+			Header.CRC		+= Header.Length;
+			Header.CRC		+= Header.StreamID;
+			Header.CRC		+= Header.SeqNo;
+			Header.CRC		+= Header.AckNo;
+			Header.CRC		+= Header.Window;
+			Header.CRC		+= Header.Flag;
+			int wlen = write(S->fd, &Header, sizeof(Header));
+		}
 	}
 
 	if (Length == 0)
