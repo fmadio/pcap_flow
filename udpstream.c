@@ -48,7 +48,7 @@ typedef struct UDPStream_t
 
 //---------------------------------------------------------------------------------------------
 
-UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID)
+UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 {
 	UDPStream_t* Stream = malloc(sizeof(UDPStream_t));
 	memset(Stream, 0, sizeof(UDPStream_t));
@@ -60,6 +60,8 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID)
 		return 0;
 	}
 	Stream->FlowID = FlowID;
+
+	printf("[%s] FlowID:%i UDP Stream: [%s]\n", FormatTS(TS), FlowID, FileName);
 
 	return Stream;
 }

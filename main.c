@@ -846,7 +846,7 @@ int main(int argc, char* argv[])
 	struct TCPStream_t* TCPStream = NULL;
 	if (s_ExtractTCPEnable)
 	{
-		TCPStream = fTCPStream_Init(kMB(128), TCPOutputFileName, s_ExtractTCPFlowID);
+		TCPStream = fTCPStream_Init(kMB(128), TCPOutputFileName, s_ExtractTCPFlowID, 0);
 		if (!TCPStream) return 0;
 	}
 
@@ -1015,7 +1015,7 @@ int main(int argc, char* argv[])
 							TCP->PortDst
 		  			);
 
-					Stream = fTCPStream_Init(kMB(128), FileName, FlowID);
+					Stream = fTCPStream_Init(kMB(128), FileName, FlowID, PCAPFile->TS);
 					s_ExtractTCP[FlowID] = Stream;
 				}
 				if (Stream == NULL)
@@ -1083,7 +1083,7 @@ int main(int argc, char* argv[])
 							UDP->PortSrc,
 							UDP->PortDst
 		  			);
-					Stream = fUDPStream_Init(FileName, FlowID);
+					Stream = fUDPStream_Init(FileName, FlowID, PCAPFile->TS);
 					s_ExtractUDP[FlowID] = Stream;
 				}
 				assert(Stream != NULL);
@@ -1190,6 +1190,10 @@ int main(int argc, char* argv[])
 			fprintf(stderr, "MemoryTCP:%.2fMB ", g_TotalMemoryTCP / 1e6); 
 
 			fprintf(stderr, "\n");
+
+			// push everything out (e.g. for long runs constantly push to log file)
+			fflush(stdout);
+			fflush(stderr);
 			if (TotalPkt > s_MaxPackets) break;
 		}
 	}

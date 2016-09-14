@@ -107,7 +107,7 @@ static u64			s_TCPBufferPacketTotal	= 0;				// total number of packets unclaimed
 
 //---------------------------------------------------------------------------------------------
 
-TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID)
+TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u64 TS)
 {
 	TCPStream_t* TCPStream = malloc( sizeof( TCPStream_t) );
 	assert(TCPStream != NULL);
@@ -131,6 +131,8 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID)
 		s_StreamCacheInit = true;
 		memset(s_StreamCache, 0, sizeof(void *) * s_StreamCacheMax);
 	}
+
+	printf("[%s] FlowID:%i TCP Stream: [%s]\n", FormatTS(TS), FlowID, OutputName);
 	return TCPStream; 
 }
 
