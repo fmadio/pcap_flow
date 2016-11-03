@@ -38,7 +38,6 @@ typedef struct
 	u64		MapLength;		// 4KB aligned mmap length
 	u8*		Map;			// raw mmap ptr
 
-	u64		TimeScale;		// 1000ns for usec pcap, 1ns for nano pcap
 	u64		ReadPos;		// current read pointer
 	u64		PktCnt;			// number of packets processed
 
@@ -151,6 +150,8 @@ bool						g_EnableTCPHeader 		= false;	// output packet header in tcp stream
 static bool					s_EnableFlowLog			= true;		// write flow log in realtime
 static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 
+static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
+
 //---------------------------------------------------------------------------------------------
 // mmaps a pcap file in full
 static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
@@ -201,8 +202,8 @@ static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
 
 	switch (Header->Magic)
 	{
-	case PCAPHEADER_MAGIC_USEC: F->TimeScale = 1000; break;
-	case PCAPHEADER_MAGIC_NANO: F->TimeScale = 1; break;
+	case PCAPHEADER_MAGIC_USEC: fprintf(stderr, "USec PACP\n"); s_PCAPTimeScale = 1000; break;
+	case PCAPHEADER_MAGIC_NANO: fprintf(stderr, "Nano PACP\n"); s_PCAPTimeScale = 1; break;
 	default:
 		fprintf(stderr, "invalid pcap header %08x\n", Header->Magic);
 		return NULL;
@@ -234,7 +235,7 @@ static PCAPPacket_t* ReadPCAP(PCAPFile_t* PCAP)
 // helpers for network formating 
 static u64 PCAPTimeStamp(PCAPPacket_t* Pkt)
 {
-	return s_TimeZoneOffset + Pkt->Sec * k1E9 + Pkt->NSec;
+	return s_TimeZoneOffset + Pkt->Sec * k1E9 + Pkt->NSec * s_PCAPTimeScale;
 }
 static fEther_t * PCAPETHHeader(PCAPPacket_t* Pkt)
 {
