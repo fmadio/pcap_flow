@@ -60,6 +60,8 @@ typedef struct
 
 	u64		PktCnt;				// number of packets in this flow
 	u64		Bytes;				// number of bytes in this flow
+	u64		TSFirst;			// first packet of the flow
+	u64		TSLast;				// last packet of the flow 
 
 	u32		Next;				// next flow has index for this hash
 
@@ -330,6 +332,10 @@ static void PrintFlowTCP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 	fprintf(Out, " %'16lld Pkts ", F->PktCnt);
 	fprintf(Out, " %'16lli Bytes ", F->Bytes);
 
+	fprintf(Out, " | ");
+	fprintf(Out, " %s -> %s", FormatTS(F->TSFirst), FormatTS(F->TSLast) ); 
+	fprintf(Out, " : %s", FormatTS(F->TSLast - F->TSFirst));
+
 	fprintf(Out, "\n");
 }
 
@@ -355,10 +361,12 @@ static void PrintFlowUDP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 	fprintf(Out, " %'16lld Pkts ", F->PktCnt);
 	fprintf(Out, " %'16lli Bytes ", F->Bytes);
 
+	fprintf(Out, " | ");
+	fprintf(Out, " %s -> %s", FormatTS(F->TSFirst), FormatTS(F->TSLast) ); 
+	fprintf(Out, " : %s", FormatTS(F->TSLast - F->TSFirst));
+
 	fprintf(Out, "\n");
 }
-
-
 
 //---------------------------------------------------------------------------------------------
 static u32 FlowHash(u32 Type, u8* Payload, u32 Length)
@@ -440,7 +448,8 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 
 	F->PktCnt++;
 	F->Bytes += PktLength;
-
+	F->TSFirst	= IsFlowNew ? TS : F->TSFirst;
+	F->TSLast	= TS;
 
 	// update flow log
 	if (IsFlowNew && s_EnableFlowLog)
@@ -516,6 +525,7 @@ static void print_usage(void)
 	fprintf(stderr, "  --output-udp <filename>                  | write UDP output to the specified file name\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "  --packet-max  <number>                   | only process the first <number> packets\n");
+	fprintf(stderr, "  --flow-max  <number>                     | sets max flow count to <number> packets\n");
 	fprintf(stderr, "  --extract <number>                       | extract FlowID <number> into the output PCAP file\n");
 	fprintf(stderr, "  --extract-tcp <number>                   | extract FlowID <number> as a TCP stream to the output file name\n"); 
 	fprintf(stderr, "  --extract-tcp-port <min port> <max port> | extract all TCP flows with the specified port in src or dest\n");
@@ -539,6 +549,7 @@ int main(int argc, char* argv[])
 	char* 	TCPOutputFileName = NULL;
 
 	memset(s_FlowExtract, 0, sizeof(s_FlowExtract));
+	s_FlowListMax 		= 100e3;							// default flow count
 
 	for (int i=1; i < argc; i++)
 	{
@@ -555,6 +566,14 @@ int main(int argc, char* argv[])
 				i+= 1;
 				fprintf(stderr, "setting maximum number of packets to %lli\n", s_MaxPackets);
 			}
+			// set the maximum number of flows
+			else if (strcmp(argv[i], "--flow-max") == 0)
+			{
+				s_FlowListMax = (u32)atof(argv[i+1]); 
+				i++;
+				fprintf(stderr, "set max flow count to %i\n", s_FlowListMax);
+			}
+
 			else if (strcmp(argv[i], "--extract") == 0)
 			{
 				u32 FlowID = atoi(argv[i+1]); 
@@ -831,7 +850,6 @@ int main(int argc, char* argv[])
 	memset(s_FlowIndex, 0, sizeof(u32)*(1ULL<<24));
 	g_TotalMemory 		+= sizeof(u32)*(1ULL<<24);
 
-	s_FlowListMax 		= 100e3;
 	s_FlowList 			= (FlowHash_t*)malloc( sizeof(FlowHash_t) * s_FlowListMax ); 
 	memset(s_FlowList, 0, sizeof(FlowHash_t) * s_FlowListMax );
 	assert(s_FlowList != NULL);
