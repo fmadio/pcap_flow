@@ -27,7 +27,7 @@
 
 //---------------------------------------------------------------------------------------------
 
-#define MAX_TCPSEGMENT		(16*1024)
+#define MAX_TCPSEGMENT		(1024*1024)
 typedef struct 
 {
 	u64			TS;
@@ -41,10 +41,9 @@ typedef struct
 typedef struct TCPStream_t 
 {
 	int				fd;
+	u32				FlowID;
 
 	u32				SeqNo;					// current/next expected tcp seq number
-	u32				FlowID;					// unique flow id in this pcap
-
 
 	u32				BufferListPos;
 	u32				BufferListMax;
@@ -57,14 +56,14 @@ typedef struct TCPStream_t
 											// file truncation
 
 	u64				WritePos;				// number of bytes written to output (including stream headers)
+	u32				WindowScale;			// tcp window scaling value
 
 } TCPStream_t;
 
 // public header output for each stream
 
-#define TCPHEADER_FLAG_RESET		(1<<0)		// indicates tcp stream has been reset
-#define TCPHEADER_FLAG_ACK			(1<<1)		// this is ack only 
-#define TCPHEADER_FLAG_REASSEMBLE	(1<<2)		// indicates this payload has been re-assembled 
+#define TCPHEADER_FLAG_RESET		(1<<15)		// indicates tcp stream has been reset
+#define TCPHEADER_FLAG_REASSEMBLE	(1<<14)		// indicates this payload has been re-assembled 
 
 typedef struct
 {
@@ -106,6 +105,32 @@ static u64			s_TCPBufferMemoryTotal	= 0;				// total amount of gapped tcp data
 static u64			s_TCPBufferPacketTotal	= 0;				// total number of packets unclaimed
 
 //---------------------------------------------------------------------------------------------
+// converts tcpflags to our internal version
+static u32 StreamTCPFlag(u32 TCPFlag)
+{
+	u32 Flag = 0;
+/*
+	// syn
+	if (TCP_FLAG_SYN(TCPFlag) && (!TCP_FLAG_ACK(TCPFlag)))
+	{
+		Flag = TCPHEADER_FLAG_SYN;
+	}
+	// syn.ack
+	if (TCP_FLAG_SYN(TCPFlag) && (TCP_FLAG_ACK(TCPFlag)))
+	{
+		Flag = TCPHEADER_FLAG_SYN | TCPHEADER_FLAG_ACK;
+	}
+	if (TCP_FLAG_FIN(TCPFlag))
+	{
+		Flag = TCPHEADER_FLAG_FIN;
+	}
+*/
+
+	Flag = swap16(TCPFlag) & 0xFF;
+	return Flag;
+}
+
+//---------------------------------------------------------------------------------------------
 
 TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u64 TS)
 {
@@ -124,6 +149,8 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u64 T
 	TCPStream->FlowID 		= FlowID;
 
 	TCPStream->IsFileCreate	= false;
+
+	TCPStream->WindowScale	= 1;
 
 	// init cache
 	if (!s_StreamCacheInit)
@@ -197,7 +224,7 @@ void fTCPStream_Close(struct TCPStream_t* S)
 }
 
 //---------------------------------------------------------------------------------------------
-void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u32 SeqNo, u32 AckNo, u32 WindowSize)
+void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u32 Flag, u32 SeqNo, u32 AckNo, u32 WindowSize)
 {
 	// is sthe fil open ? 
 	if (S->fd <= 0)
@@ -218,7 +245,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 		Header.SeqNo	= SeqNo; 
 		Header.AckNo	= AckNo; 
 		Header.Window	= WindowSize; 
-		Header.Flag		= 0; 
+		Header.Flag		= Flag; 
 		Header.CRC		= 0;
 		Header.CRC		+= Header.TS;
 		Header.CRC		+= Header.Length;
@@ -241,10 +268,17 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 
 void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, u8* Payload)
 {
+	//printf("tcp len: %i %08x %08x\n", Length, swap32(TCP->SeqNo), swap32(TCP->AckNo));
+	u32 WindowSize 	= swap16( TCP->Window) * S->WindowScale;
+	u32 SeqNo 		= swap32( TCP->SeqNo );
+	u32 AckNo 		= swap32( TCP->AckNo );
+
+	u32 Flag 		= StreamTCPFlag(TCP->Flags); 
+
 	if (TCP_FLAG_SYN(TCP->Flags))
 	{
 		if (g_Verbose) printf("[%s] [%s] got syn\n", FormatTS(TS), S->Path);
-		S->SeqNo = swap32(TCP->SeqNo) + 1;
+		S->SeqNo = SeqNo + 1;
 
 		// release all reassembly buffer data . assumption is this is now a new tcp stream
 		for (int i=0; i < S->BufferListPos; i++)
@@ -269,6 +303,40 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			//fprintf(stderr, "[%s] open file\n", FormatTS(TS));
 		}
 
+		// parse options
+		u32 OLen = (4*swap16(TCP->Flags) >> 12) - 20;
+		u8* Option = (u32*)(TCP + 1);
+		for (int o=0; o < OLen; o++)
+		{
+			// end of options
+			if (Option[o] == 0) break;
+
+			// nop
+			if (Option[o] == 1) continue;
+
+			// MSS
+			if ((Option[o+0] == 2) && (Option[o+1] == 4))
+			{
+				u32 MSS = ((u32)Option[o+2]<< 8) | (u32)Option[o+3];
+				printf("TCP MSS: %i\n", MSS);
+				o+= 2;
+			}
+			// Window Scale 
+			if ((Option[o+0] == 3) && (Option[o+1] == 3))
+			{
+				u32 Scale = Option[o+2];
+				printf("TCP WindowScale: %i\n", Scale);
+				o+= 1;
+				S->WindowScale = Scale;
+			}
+			// Selective Ack 
+			if ((Option[o+0] == 4) && (Option[o+1] == 2))
+			{
+				printf("TCP SelAck\n");
+			}
+			printf("tcp offset: [%4i] %02x\n", o, Option[o]);
+		}
+
 		// indicate stream reset
 		if (g_EnableTCPHeader)
 		{
@@ -279,7 +347,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			Header.SeqNo	= 0; 
 			Header.AckNo	= 0; 
 			Header.Window	= 0; 
-			Header.Flag		= TCPHEADER_FLAG_RESET; 
+			Header.Flag		= Flag | TCPHEADER_FLAG_RESET; 
 			Header.CRC		= 0;
 			Header.CRC		+= Header.TS;
 			Header.CRC		+= Header.Length;
@@ -294,18 +362,36 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 
 	if (Length == 0)
 	{
-		//printf("tcp pkt %i\n", Length);
+		// usuall ack with no payload	
+		if (g_EnableTCPHeader)
+		{
+			TCPOutputHeader_t Header;
+			Header.TS 		= TS;
+			Header.Length 	= Length;
+			Header.StreamID	= S->FlowID;
+			Header.SeqNo	= SeqNo; 
+			Header.AckNo	= AckNo; 
+			Header.Window	= WindowSize; 
+			Header.Flag		= Flag; 
+			Header.CRC		= 0;
+			Header.CRC		+= Header.TS;
+			Header.CRC		+= Header.Length;
+			Header.CRC		+= Header.StreamID;
+			Header.CRC		+= Header.SeqNo;
+			Header.CRC		+= Header.AckNo;
+			Header.CRC		+= Header.Window;
+			Header.CRC		+= Header.Flag;
+
+			int rlen = write(S->fd, &Header, sizeof(Header));
+			S->WritePos += sizeof(Header);
+		}
 	}
 	else
 	{
-		u32 SeqNo 		= swap32( TCP->SeqNo );
-		u32 AckNo 		= swap32( TCP->AckNo );
-		u32 WindowSize 	= 0;
-
 		s32 dSeqNo = SeqNo - S->SeqNo;
 		if (dSeqNo == 0)
 		{
-			fTCPStream_OutputPayload(S, TS, Length, Payload, SeqNo, AckNo, WindowSize);
+			fTCPStream_OutputPayload(S, TS, Length, Payload, Flag, SeqNo, AckNo, WindowSize);
 			if (S->BufferListPos > 0)
 			{
 				if (g_Verbose) printf("[%s] [%s] resend hit Seq:%08x : %i\n", FormatTS(TS), S->Path, SeqNo, S->BufferListPos);
@@ -320,7 +406,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 						if (Buffer->SeqNo == S->SeqNo)
 						{
 							if (g_Verbose) printf("[%s] [%s] reassembly hit Seq:%08x:%08x : %i %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, S->SeqNo + Buffer->Length, S->BufferListPos, Length);
-							fTCPStream_OutputPayload(S, TS, Buffer->Length, Buffer->Payload, S->SeqNo, 0, 0);
+							fTCPStream_OutputPayload(S, TS, Buffer->Length, Buffer->Payload, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
 							Hit = true;
 						}
 						// redundant packet
@@ -373,7 +459,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 				s32 PayloadOffset = S->SeqNo - SeqNo; 
 				assert(PayloadOffset > 0);
 
-				fTCPStream_OutputPayload(S, TS, dRemain, Payload + PayloadOffset, S->SeqNo, 0, 0);
+				fTCPStream_OutputPayload(S, TS, dRemain, Payload + PayloadOffset, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
 			}
 			// stop processing if too many gaps 
 			else if (S->BufferListPos < S->BufferListMax)

@@ -61,6 +61,9 @@ typedef struct
 	u64		Bytes;				// number of bytes in this flow
 	u64		TSFirst;			// first packet of the flow
 	u64		TSLast;				// last packet of the flow 
+			
+								// for duplex matching
+	u32		TCPSeqNo;			// tcp syn/synack seq no
 
 	u32		Next;				// next flow has index for this hash
 
@@ -96,7 +99,6 @@ double TSC2Nano = 0;
 
 //---------------------------------------------------------------------------------------------
 // tunables
-
 static u64		s_MaxPackets			= (1ULL<<63);			// max number of packets to process
 static s64		s_TimeZoneOffset		= 0;					// local timezone
 u64				g_TotalMemory			= 0;					// total memory consumption
@@ -114,27 +116,26 @@ static u32					s_FlowListMax;						// max number of flows
 
 static u64					s_FlowListPacketMin 	= 0;		// minimum number of packets to show entry for
 
-static u8					s_FlowExtract[1024*1024];			// boolean to extract the specified flow id
+static u8*					s_FlowExtract 			= NULL;		// boolean to extract the specified flow id
 static bool					s_FlowExtractEnable 	= false;	// indicaes flow extraction 
 static u32					s_FlowExtractMax		= 1024*1024;
 
 static u32					s_ExtractTCPEnable 		= false;	// request extraction of tcp stream
-static u32					s_ExtractTCPFlowID 		= 0;		// which flow to extract
+static u8*					s_ExtractTCPFlow		= NULL;		// boolean to extract the specified flow id
 
 static bool					s_ExtractTCPPortEnable 	= false;	// extract all tcp flows with the specified port number
 static u32					s_ExtractTCPPortMin		= 0;
 static u32					s_ExtractTCPPortMax		= 0;
-static struct TCPStream_t* 	s_ExtractTCP[1024*1024]; 			// list of tcp stream extraction objects 
+static struct TCPStream_t** s_ExtractTCP			= NULL; 	// list of tcp stream extraction objects 
 
-static bool					s_DisableTCPPortEnable 	= false;	// extract all tcp flows with the specified port number
-static u32					s_DisableTCPPortMin		= 0;
-static u32					s_DisableTCPPortMax		= 0;
-static struct TCPStream_t* 	s_DisableTCP[1024*1024]; 			// list of tcp stream extraction objects 
+static u32					s_DisableTCPPortCnt 	= 0;		// extract all tcp flows with the specified port number
+static u32					s_DisableTCPPortMin[32];
+static u32					s_DisableTCPPortMax[32];
 
 static bool					s_ExtractUDPPortEnable 	= false;	// extract all UDP flows within the specified port range 
 static u32					s_ExtractUDPPortMin		= 0;
 static u32					s_ExtractUDPPortMax		= 0;
-static struct UDPStream_t*	s_ExtractUDP[1024*1024];
+static struct UDPStream_t**	s_ExtractUDP			= NULL;
 
 static bool					s_ExtractIPEnable		= false;	// extract an IP range into a seperate pcap file
 static u32					s_ExtractIPMask			= 0;		// /32 mask
@@ -148,6 +149,7 @@ static bool					s_EnableFlowDisplay 	= true;		// print full flow information
 bool						g_EnableTCPHeader 		= false;	// output packet header in tcp stream
 
 static bool					s_EnableFlowLog			= true;		// write flow log in realtime
+static char					s_FlowLogPath[128];					// where to store the flow log
 static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 
 static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
@@ -336,6 +338,9 @@ static void PrintFlowTCP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 	fprintf(Out, " | ");
 	fprintf(Out, " %s -> %s", FormatTS(F->TSFirst), FormatTS(F->TSLast) ); 
 	fprintf(Out, " : %s", FormatTS(F->TSLast - F->TSFirst));
+
+	fprintf(Out, " | ");
+	fprintf(Out, " Seq:%08x", F->TCPSeqNo);
 
 	fprintf(Out, "\n");
 }
@@ -538,6 +543,28 @@ static void print_usage(void)
 	fprintf(stderr, "\n");
 }
 
+
+//---------------------------------------------------------------------------------------------
+static void FlowAlloc(u32 FlowMax)
+{
+	s_FlowListMax = FlowMax;
+
+	if (s_FlowExtract)		free(s_FlowExtract);
+	if (s_ExtractTCPFlow)	free(s_ExtractTCPFlow);
+	if (s_ExtractTCP) 		free(s_ExtractTCP);
+	if (s_ExtractUDP) 		free(s_ExtractUDP);
+
+	s_FlowExtract 		= (u8*)malloc( s_FlowListMax * sizeof(u8) );
+	s_ExtractTCPFlow 	= (u8*)malloc( s_FlowListMax * sizeof(u8) );
+	s_ExtractTCP	 	= (struct TCPStream_t**)malloc( s_FlowListMax * sizeof(void*) );
+	s_ExtractUDP	 	= (struct UDPStream_t**)malloc( s_FlowListMax * sizeof(void*) );
+
+	memset(s_FlowExtract,		0, s_FlowListMax * sizeof(u8) );
+	memset(s_ExtractTCPFlow,	0, s_FlowListMax * sizeof(u8) );
+	memset(s_ExtractTCP, 		0, s_FlowListMax * sizeof(void*) );
+	memset(s_ExtractUDP, 		0, s_FlowListMax * sizeof(void*) );
+}
+
 //---------------------------------------------------------------------------------------------
 
 int main(int argc, char* argv[])
@@ -549,8 +576,8 @@ int main(int argc, char* argv[])
 	char* 	UDPOutputFileName = NULL;
 	char* 	TCPOutputFileName = NULL;
 
-	memset(s_FlowExtract, 0, sizeof(s_FlowExtract));
-	s_FlowListMax 		= 100e3;							// default flow count
+	// allocate flow lists
+	FlowAlloc(100e3);							// default flow count
 
 	for (int i=1; i < argc; i++)
 	{
@@ -570,11 +597,11 @@ int main(int argc, char* argv[])
 			// set the maximum number of flows
 			else if (strcmp(argv[i], "--flow-max") == 0)
 			{
-				s_FlowListMax = (u32)atof(argv[i+1]); 
+				u32 FlowMax = (u32)atof(argv[i+1]); 
 				i++;
-				fprintf(stderr, "set max flow count to %i\n", s_FlowListMax);
+				fprintf(stderr, "set max flow count to %i\n", FlowMax);
+				FlowAlloc(FlowMax);							// default flow count
 			}
-
 			else if (strcmp(argv[i], "--extract") == 0)
 			{
 				u32 FlowID = atoi(argv[i+1]); 
@@ -583,7 +610,7 @@ int main(int argc, char* argv[])
 					fprintf(stderr, "flow overflow\n");
 					return 0;
 				}
-				s_FlowExtract[ FlowID ] = 1;
+				s_FlowExtract[ FlowID ] = 1<<7;
 				s_FlowExtractEnable 	= true;
 				i++;
 			}
@@ -659,7 +686,7 @@ int main(int argc, char* argv[])
 			{
 				u32 FlowID 			= atoi(argv[i+1]); 
 				s_ExtractTCPEnable 	= true;					
-				s_ExtractTCPFlowID 	= FlowID;					
+				s_ExtractTCPFlow[ FlowID ] = 1;
 				i++;
 
 				fprintf(stderr, "extract tcp flow %i\n", FlowID);
@@ -689,12 +716,13 @@ int main(int argc, char* argv[])
 			{
 				u32 PortMin 			= atoi(argv[i+1]);
 				u32 PortMax 			= atoi(argv[i+2]);
-				s_DisableTCPPortEnable 	= true;					
-				s_DisableTCPPortMin 	= PortMin; 
-				s_DisableTCPPortMax 	= PortMax; 
+				s_DisableTCPPortMin[s_DisableTCPPortCnt] = PortMin; 
+				s_DisableTCPPortMax[s_DisableTCPPortCnt] = PortMax; 
+				s_DisableTCPPortCnt++;
+
 				i += 2;	
 
-				fprintf(stderr, "disable tcp extraction on ports %i-%i\n", PortMin, PortMax);
+				fprintf(stderr, "disable tcp extraction on ports [%i] %i-%i\n", s_DisableTCPPortCnt-1, PortMin, PortMax);
 			}
 			// extract udp flows within the specified range to individual files
 			else if (strcmp(argv[i], "--extract-udp-port") == 0)
@@ -717,7 +745,6 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "extract all udp flows\n");
 			}
-
 			// input is from stdin 
 			else if (strcmp(argv[i], "--stdin") == 0)
 			{
@@ -757,7 +784,6 @@ int main(int argc, char* argv[])
 				i++;
 				fprintf(stderr, "writing TCP PCAP to [%s]\n", TCPOutputFileName);
 			}
-
 			// pin to a specific CPU
 			else if (strcmp(argv[i], "--cpu") == 0)
 			{
@@ -784,6 +810,7 @@ int main(int argc, char* argv[])
 		}
 	}
 
+
 	// needs atleast 2 files
 	if (!(FileStdin) && (FileNameListPos <= 0))
 	{
@@ -791,9 +818,17 @@ int main(int argc, char* argv[])
 		return 0;
 	}
 
+	if (FileStdin)	strcpy(s_FlowLogPath, "capture"); 
+	else			strcpy(s_FlowLogPath, FileNameList[0]); 
+
 	if (s_FlowExtractEnable && s_ExtractTCPEnable)
 	{
 		fprintf(stderr, "can not extract flow and tcp at the same time\n");
+		return 0;
+	}
+	if (s_ExtractTCPEnable && (!TCPOutputFileName))
+	{
+		fprintf(stderr, "specify tcp extract path --output-tcp <path>\n");
 		return 0;
 	}
 
@@ -824,7 +859,7 @@ int main(int argc, char* argv[])
 	if (s_EnableFlowLog)
 	{
 		char Path[1024];
-		sprintf(Path, "%s.flow", TCPOutputFileName	);
+		sprintf(Path, "%s.flow", s_FlowLogPath);
 		s_FlowLogFile = fopen(Path, "w");
 		if (!s_FlowLogFile )
 		{
@@ -835,11 +870,9 @@ int main(int argc, char* argv[])
 
 	// calcuate tsc frequency
 	CycleCalibration();
-
 	setlocale(LC_NUMERIC, "");
 
 	// get timezone offset
-
   	time_t t = time(NULL);
 	struct tm lt = {0};
 
@@ -857,20 +890,28 @@ int main(int argc, char* argv[])
 	g_TotalMemory 		+= sizeof(FlowHash_t) * s_FlowListMax;
 	
 	// open pcap diff files
-
 	PCAPFile_t* PCAPFile = OpenPCAP(FileNameList[0], FileStdin);	
 	if (!PCAPFile) return 0;
 
 	// init tcp reassembly
-	struct TCPStream_t* TCPStream = NULL;
+	/*
 	if (s_ExtractTCPEnable)
 	{
-		TCPStream = fTCPStream_Init(kMB(128), TCPOutputFileName, s_ExtractTCPFlowID, 0);
-		if (!TCPStream) return 0;
+		for (int i=0; i < s_FlowExtractMax; i++)
+		{
+			if (s_ExtractTCP[i]j
+			{
+				char Path[256];
+				u32 FlowID = i; 
+
+				sprintf(Path, "%s.tcpflow.%i", TCPOutputFileName, FlowID);
+				s_ExtractTCP[i] = fTCPStream_Init(kMB(128), Path, FlowID, 0);
+			}
+		}
 	}
+	*/
 
 	// clear tcp output
-
 	memset(s_ExtractTCP, 0, sizeof(s_ExtractTCP));
 	printf("[%30s] FileSize: %lliGB\n", PCAPFile->Path, PCAPFile->Length / kGB(1));
 
@@ -918,6 +959,18 @@ int main(int argc, char* argv[])
 				TCPHash->PortDst = swap16(TCP->PortDst); 
 
 				HashLength = 64; 
+
+				// mark tcp SYN/SYNACK sequence numbers for duplex matching
+				if (TCP_FLAG_SYN(TCP->Flags) & (!TCP_FLAG_ACK(TCP->Flags)))
+				{
+					// syn seq no 
+					Flow.TCPSeqNo = swap32(TCP->SeqNo);
+				}
+				if (TCP_FLAG_SYN(TCP->Flags) & (TCP_FLAG_ACK(TCP->Flags)))
+				{
+					// syn.ack ack no (syn.ack bumps it by 1)
+					Flow.TCPSeqNo = swap32(TCP->AckNo) -1;
+				}
 			}
 			break;
 
@@ -962,40 +1015,39 @@ int main(int argc, char* argv[])
 			}
 		}
 
-		if (s_ExtractTCPEnable && (FlowID == s_ExtractTCPFlowID))
-		{
-			TCPHeader_t* TCP = PCAPTCPHeader(Pkt); 
-
-			u32 TCPPayloadLength = 0;
-			u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
-
-			fTCPStream_PacketAdd(TCPStream, PCAPFile->TS, TCP, TCPPayloadLength, TCPPayload);
-		}
-
 		// extract all tcp flows with the specified port range
-		if (s_ExtractTCPPortEnable && (Flow.Type == FLOW_TYPE_TCP))
+		if (Flow.Type == FLOW_TYPE_TCP)
 		{
 			TCPHeader_t* TCPHeader 	= PCAPTCPHeader(Pkt);
 			TCPHash_t* TCP 			= (TCPHash_t*)Flow.Data;
 
 			bool Output = false; 
-			Output |= (TCP->PortSrc >= s_ExtractTCPPortMin) && (TCP->PortSrc <= s_ExtractTCPPortMax);
-			Output |= (TCP->PortDst >= s_ExtractTCPPortMin) && (TCP->PortDst <= s_ExtractTCPPortMax);
-
-			// disable port range
-
-			if (s_DisableTCPPortEnable)
+			// tcp port ranges
+			if (s_ExtractTCPPortEnable)
 			{
-				if ((TCP->PortSrc >= s_DisableTCPPortMin) && (TCP->PortSrc <= s_DisableTCPPortMax))
+				Output |= (TCP->PortSrc >= s_ExtractTCPPortMin) && (TCP->PortSrc <= s_ExtractTCPPortMax);
+				Output |= (TCP->PortDst >= s_ExtractTCPPortMin) && (TCP->PortDst <= s_ExtractTCPPortMax);
+
+				// disable port range
+
+				for (int d=0; d < s_DisableTCPPortCnt; d++)
 				{
-					Output = false;	
-				}
-				if ((TCP->PortDst >= s_DisableTCPPortMin) && (TCP->PortDst <= s_DisableTCPPortMax))
-				{
-					Output = false;	
+					if ((TCP->PortSrc >= s_DisableTCPPortMin[d]) && (TCP->PortSrc <= s_DisableTCPPortMax[d]))
+					{
+						Output = false;	
+					}
+					if ((TCP->PortDst >= s_DisableTCPPortMin[d]) && (TCP->PortDst <= s_DisableTCPPortMax[d]))
+					{
+						Output = false;	
+					}
 				}
 			}
-			
+			// specific flow id`s
+			if (s_ExtractTCPEnable && s_ExtractTCPFlow[FlowID])
+			{
+				Output = true;
+			}
+				
 			if (Output)
 			{
 				// new flow ? 	
@@ -1047,13 +1099,11 @@ int main(int argc, char* argv[])
 
 				u32 TCPPayloadLength = 0;
 				u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
-
 				fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
 			}
 		}
 
 		// extract all udp flows  
-
 		if (s_ExtractUDPPortEnable && (Flow.Type == FLOW_TYPE_UDP))
 		{
 			UDPHeader_t* UDPHeader 	= PCAPUDPHeader(Pkt);
@@ -1199,7 +1249,7 @@ int main(int argc, char* argv[])
 			u64 TSf = PCAPFile->TS; 
 			fprintf(stderr, "[%s %.3f%%] ", FormatTS(TSf), PCAPFile->ReadPos / (double)PCAPFile->Length); 
 			fprintf(stderr, "Flows:%i ", s_FlowListPos);
-			fprintf(stderr, "%.2fM Pkts %.3fGbps : %.2fGB ",
+			fprintf(stderr, "%.2fM Pkts %8.3fGbps : %.2fGB ",
 					TotalPkt / 1e6, 
 					(8.0*Bps) / 1e9,
 					TotalByte / 1e9
@@ -1219,8 +1269,6 @@ int main(int argc, char* argv[])
 	fprintf(stderr, "parse done\n");
 
 	if (OutPCAP) fclose(OutPCAP);
-	fTCPStream_Close(TCPStream);
-
 	if (s_EnableFlowDisplay) PrintHumanFlows();	
 }
 

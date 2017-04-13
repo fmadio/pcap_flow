@@ -453,6 +453,8 @@ typedef struct
 #define IPv4_PROTO_UDP			17	
 
 #define TCP_FLAG_SYN(a) ((a >>(8+1))&1)
+#define TCP_FLAG_ACK(a) ((a >>(8+4))&1)
+#define TCP_FLAG_FIN(a) ((a >>(8+0))&1)
 
 typedef struct
 {
