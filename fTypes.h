@@ -33,8 +33,6 @@ typedef int					s32;
 typedef unsigned long long	u64;
 typedef long long			s64;
 
-typedef unsigned __int128	u128;
-
 #define k1E9 1000000000ULL
 
 #define kKB(a) ( ((u64)a)*1024ULL)
