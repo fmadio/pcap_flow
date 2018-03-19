@@ -329,23 +329,23 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			if ((Option[o+0] == 2) && (Option[o+1] == 4))
 			{
 				u32 MSS = ((u32)Option[o+2]<< 8) | (u32)Option[o+3];
-				printf("TCP MSS: %i\n", MSS);
+				if (g_Verbose) printf("TCP MSS: %i\n", MSS);
 				o+= 2;
 			}
 			// Window Scale 
 			if ((Option[o+0] == 3) && (Option[o+1] == 3))
 			{
 				u32 Scale = Option[o+2];
-				printf("TCP WindowScale: %i\n", Scale);
+				if (g_Verbose) printf("TCP WindowScale: %i\n", Scale);
 				o+= 1;
 				S->WindowScale = Scale;
 			}
 			// Selective Ack 
 			if ((Option[o+0] == 4) && (Option[o+1] == 2))
 			{
-				printf("TCP SelAck\n");
+				if (g_Verbose) printf("TCP SelAck\n");
 			}
-			printf("tcp offset: [%4i] %02x\n", o, Option[o]);
+			//printf("tcp offset: [%4i] %02x\n", o, Option[o]);
 		}
 
 		// indicate stream reset
