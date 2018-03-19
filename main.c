@@ -929,7 +929,6 @@ int main(int argc, char* argv[])
 
 		u32 HashLength = 0;
 		FlowHash_t  Flow;
-		memset(&Flow, 0, sizeof(Flow));
 
 		fEther_t * Ether = PCAPETHHeader(Pkt);
 		switch (swap16(Ether->Proto))
@@ -943,6 +942,8 @@ int main(int argc, char* argv[])
 			case IPv4_PROTO_TCP:
 			{
 				TCPHeader_t* TCP = (TCPHeader_t*)( ((u8*)IP4) + IPOffset);
+
+				memset(&Flow, 0, sizeof(Flow));
 
 				Flow.Type = FLOW_TYPE_TCP;
 
@@ -978,6 +979,8 @@ int main(int argc, char* argv[])
 			{
 				UDPHeader_t* UDP = (UDPHeader_t*)( ((u8*)IP4) + IPOffset);
 
+				memset(&Flow, 0, sizeof(Flow));
+
 				Flow.Type = FLOW_TYPE_UDP;
 
 				UDPHash_t* UDPHash = (UDPHash_t*)Flow.Data;
@@ -998,6 +1001,12 @@ int main(int argc, char* argv[])
 			}
 		}
 		break;
+		}
+
+		// not valid TCP or UDP data
+		if (HashLength == 0)
+		{
+			continue;
 		}
 
 		u32 FlowID = 0;
@@ -1029,7 +1038,6 @@ int main(int argc, char* argv[])
 				Output |= (TCP->PortDst >= s_ExtractTCPPortMin) && (TCP->PortDst <= s_ExtractTCPPortMax);
 
 				// disable port range
-
 				for (int d=0; d < s_DisableTCPPortCnt; d++)
 				{
 					if ((TCP->PortSrc >= s_DisableTCPPortMin[d]) && (TCP->PortSrc <= s_DisableTCPPortMax[d]))

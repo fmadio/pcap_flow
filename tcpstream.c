@@ -40,7 +40,8 @@ typedef struct
 
 typedef struct TCPStream_t 
 {
-	int				fd;
+	//int				fd;
+	FILE*			File;
 	u32				FlowID;
 
 	u32				SeqNo;					// current/next expected tcp seq number
@@ -144,7 +145,8 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u64 T
 	TCPStream->BufferListMax = 1*1024;
 
 	strncpy(TCPStream->Path, OutputName, sizeof(TCPStream->Path));
-	TCPStream->fd = -1; 
+	//TCPStream->fd = -1; 
+	TCPStream->File = NULL;
 
 	TCPStream->FlowID 		= FlowID;
 
@@ -170,7 +172,6 @@ static void fTCPStream_Open(TCPStream_t* S)
 	// find oldest entry in the cache
 	u32 Index = 0;
 	u64 IndexTSC = 0; 
-
 	for (int i=0; i < s_StreamCacheMax; i++)
 	{
 		// empty slot, so use it
@@ -191,8 +192,10 @@ static void fTCPStream_Open(TCPStream_t* S)
 	// close eviected stream
 	if (s_StreamCache[ Index ])
 	{
-		close(s_StreamCache[Index]->fd);
-		s_StreamCache[Index]->fd = -1;
+		//close(s_StreamCache[Index]->fd);
+		fclose(s_StreamCache[Index]->File);
+		//s_StreamCache[Index]->fd = -1;
+		s_StreamCache[Index]->File = NULL;
 	}
 	//printf("[%s] open file\n", S->Path);
 
@@ -200,8 +203,11 @@ static void fTCPStream_Open(TCPStream_t* S)
 	int Flags = O_CREAT | O_RDWR;
 	Flags |= (!S->IsFileCreate) ? O_TRUNC : 0;
 
-	S->fd = open64(S->Path, Flags, S_IRWXU);
-	if (S->fd < 0)
+
+	//S->fd = open64(S->Path, Flags, S_IRWXU);
+	//if (S->fd < 0)
+	S->File = fopen64(S->Path, "w+"); 
+	if (S->File == NULL) 
 	{
 		fprintf(stderr, "failed to create output file [%s] errno:%i\n", S->Path, errno);
 		exit(-1);
@@ -217,7 +223,8 @@ void fTCPStream_Close(struct TCPStream_t* S)
 {
 	if(!S) return;
 
-	close(S->fd);
+	//close(S->fd);
+	fclose(S->File);
 
 	memset(S, 0, sizeof(TCPStream_t));
 	free(S);
@@ -227,7 +234,8 @@ void fTCPStream_Close(struct TCPStream_t* S)
 void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u32 Flag, u32 SeqNo, u32 AckNo, u32 WindowSize)
 {
 	// is sthe fil open ? 
-	if (S->fd <= 0)
+	//if (S->fd <= 0)
+	if (S->File == NULL) 
 	{
 		// evict an old stream	
 		fTCPStream_Open(S);	
@@ -255,10 +263,12 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 		Header.CRC		+= Header.Window;
 		Header.CRC		+= Header.Flag;
 
-		rlen = write(S->fd, &Header, sizeof(Header));
+		//rlen = write(S->fd, &Header, sizeof(Header));
+		rlen = fwrite(&Header, sizeof(Header), 1, S->File);
 		S->WritePos += sizeof(Header);
 	}
-	rlen = write(S->fd, Payload, Length);
+	//rlen = write(S->fd, Payload, Length);
+	rlen = fwrite(Payload, Length, 1, S->File);
 	S->WritePos += Length; 
 
 	S->LastTSC = rdtsc();
@@ -273,8 +283,16 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 	u32 SeqNo 		= swap32( TCP->SeqNo );
 	u32 AckNo 		= swap32( TCP->AckNo );
 
-	u32 Flag 		= StreamTCPFlag(TCP->Flags); 
+	// is sthe fil open ? 
+	//if (S->fd <= 0)
+	if (S->File == NULL) 
+	{
+		// evict an old stream	
+		fTCPStream_Open(S);	
+		//fprintf(stderr, "[%s] open file\n", FormatTS(TS));
+	}
 
+	u32 Flag 		= StreamTCPFlag(TCP->Flags); 
 	if (TCP_FLAG_SYN(TCP->Flags))
 	{
 		if (g_Verbose) printf("[%s] [%s] got syn\n", FormatTS(TS), S->Path);
@@ -295,17 +313,10 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 		}
 		S->BufferListPos = 0;
 
-		// is sthe fil open ? 
-		if (S->fd <= 0)
-		{
-			// evict an old stream	
-			fTCPStream_Open(S);	
-			//fprintf(stderr, "[%s] open file\n", FormatTS(TS));
-		}
 
 		// parse options
 		u32 OLen = (4*swap16(TCP->Flags) >> 12) - 20;
-		u8* Option = (u32*)(TCP + 1);
+		u8* Option = (u8*)(TCP + 1);
 		for (int o=0; o < OLen; o++)
 		{
 			// end of options
@@ -356,7 +367,8 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			Header.CRC		+= Header.AckNo;
 			Header.CRC		+= Header.Window;
 			Header.CRC		+= Header.Flag;
-			int wlen = write(S->fd, &Header, sizeof(Header));
+			//int wlen = write(S->fd, &Header, sizeof(Header));
+			int wlen = fwrite(&Header, sizeof(Header), 1, S->File);
 		}
 	}
 
@@ -382,7 +394,8 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			Header.CRC		+= Header.Window;
 			Header.CRC		+= Header.Flag;
 
-			int rlen = write(S->fd, &Header, sizeof(Header));
+			//int rlen = write(S->fd, &Header, sizeof(Header));
+			int rlen = fwrite(&Header, sizeof(Header), 1, S->File);
 			S->WritePos += sizeof(Header);
 		}
 	}
