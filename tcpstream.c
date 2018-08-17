@@ -230,6 +230,15 @@ void fTCPStream_Close(struct TCPStream_t* S)
 	free(S);
 }
 
+
+//---------------------------------------------------------------------------------------------
+// periodically flush to disk
+void fTCPStream_Flush(struct TCPStream_t* S)
+{
+	if (!S) return;
+	fflush(S->File);
+}
+
 //---------------------------------------------------------------------------------------------
 void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u32 Flag, u32 SeqNo, u32 AckNo, u32 WindowSize)
 {

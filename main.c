@@ -1272,9 +1272,27 @@ int main(int argc, char* argv[])
 			fflush(stdout);
 			fflush(stderr);
 			if (TotalPkt > s_MaxPackets) break;
+
+			// flush tcp/streams to disk
+			for (int i=0; i < s_FlowListMax; i++)
+			{
+				if (s_ExtractTCP[i])
+				{
+					fTCPStream_Flush(s_ExtractTCP[i]);
+				}
+			}
 		}
 	}
 	fprintf(stderr, "parse done\n");
+
+	// close output streams
+	for (int i=0; i < s_FlowListMax; i++)
+	{
+		if (s_ExtractTCP[i])
+		{
+			fTCPStream_Close(s_ExtractTCP[i]);
+		}
+	}
 
 	if (OutPCAP) fclose(OutPCAP);
 	if (s_EnableFlowDisplay) PrintHumanFlows();	
