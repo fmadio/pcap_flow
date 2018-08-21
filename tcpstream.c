@@ -105,6 +105,9 @@ extern bool			g_EnableTCPHeader;
 static u64			s_TCPBufferMemoryTotal	= 0;				// total amount of gapped tcp data
 static u64			s_TCPBufferPacketTotal	= 0;				// total number of packets unclaimed
 
+static u64			s_TotalByte = 0;							// total number of bytes outputed in streams
+static u64			s_TotalPkt 	= 0;							// total number of packets output 
+
 //---------------------------------------------------------------------------------------------
 // converts tcpflags to our internal version
 static u32 StreamTCPFlag(u32 TCPFlag)
@@ -281,6 +284,10 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 	S->WritePos += Length; 
 
 	S->LastTSC = rdtsc();
+
+	// total TCP bytes output
+	s_TotalByte += Length;
+	s_TotalPkt	+= 1;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -528,4 +535,15 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			}
 		}
 	}
+}
+
+//---------------------------------------------------------------------------------------------
+// dump tcp stream export stats
+void fTCPStream_Dump(void)
+{
+	printf("TCPStream: TotalPkts: %16lli\n", s_TotalPkt);
+	printf("TCPStream: TotalByte: %16lli\n", s_TotalByte);
+
+	fprintf(stderr, "TCPStream: TotalPkts: %16lli\n", s_TotalPkt);
+	fprintf(stderr, "TCPStream: TotalByte: %16lli\n", s_TotalByte);
 }

@@ -1231,7 +1231,6 @@ int main(int argc, char* argv[])
 				fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
 				OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
 			}
-
 		}
 
 		TotalPkt++;
@@ -1278,6 +1277,7 @@ int main(int argc, char* argv[])
 			{
 				if (s_ExtractTCP[i])
 				{
+					//fprintf(stderr, "[%i] TCP Flush\n", i);
 					fTCPStream_Flush(s_ExtractTCP[i]);
 				}
 			}
@@ -1290,12 +1290,16 @@ int main(int argc, char* argv[])
 	{
 		if (s_ExtractTCP[i])
 		{
+			//fprintf(stderr, "[%i] TCP Close\n", i);
 			fTCPStream_Close(s_ExtractTCP[i]);
 		}
 	}
 
 	if (OutPCAP) fclose(OutPCAP);
 	if (s_EnableFlowDisplay) PrintHumanFlows();	
+
+	// dump tcp stats
+	fTCPStream_Dump();
 }
 
 /* vim: set ts=4 sts=4 */
