@@ -183,7 +183,7 @@ static PCAPFile_t* OpenPCAP(char* Path, bool EnableStdin)
 	else
 	{
 		F->F 		= stdin;
-		F->Length 	= 1e12;
+		F->Length 	= 1e15;		// 1PB limit
 	}
 
 	// note always map as read-only 
@@ -222,12 +222,31 @@ static PCAPPacket_t* ReadPCAP(PCAPFile_t* PCAP)
 	int ret;
 	PCAPPacket_t* Pkt = (PCAPPacket_t*)PCAP->PacketBuffer;
 	ret = fread(Pkt, 1, sizeof(PCAPPacket_t), PCAP->F);
-	if (ret != sizeof(PCAPPacket_t)) return NULL;
+	if (ret != sizeof(PCAPPacket_t))
+	{
+		fprintf(stderr, "header read failed. expect:%i got:%i errno:%i %s\n", sizeof(PCAPPacket_t), ret, errno, strerror(errno));
+		fprintf(stderr, "errno: %i\n", ferror(PCAP->F));
+		return NULL;
+	}
 
-	if (PCAP->ReadPos + sizeof(PCAPPacket_t) + Pkt->LengthCapture > PCAP->Length) return NULL; 
+	if (PCAP->ReadPos + sizeof(PCAPPacket_t) + Pkt->LengthCapture > PCAP->Length)
+	{
+		fprintf(stderr, "read overflow %lli %i %i > %lli\n", 
+				PCAP->ReadPos,
+				sizeof(PCAPPacket_t),
+				Pkt->LengthCapture,
+				PCAP->Length
+		);	
+		return NULL; 
+	}
 
 	ret = fread(Pkt+1, 1, Pkt->LengthCapture, PCAP->F);
-	if (ret != Pkt->LengthCapture) return NULL;
+	if (ret != Pkt->LengthCapture)
+	{
+		fprintf(stderr, "payload read failed. expect:%i got:%i errno:%i %s\n", sizeof(PCAPPacket_t), ret, errno, strerror(errno));
+		fprintf(stderr, "errno: %i\n", ferror(PCAP->F));
+		return NULL;
+	}
 
 	PCAP->ReadPos += Pkt->LengthCapture;
 	return Pkt;
@@ -680,7 +699,6 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "extract port range: %i-%i\n", s_ExtractPortMin, s_ExtractPortMax);
 			}
-
 			// extract the specified flow as tcp stream
 			else if (strcmp(argv[i], "--extract-tcp") == 0)
 			{
@@ -923,7 +941,11 @@ int main(int argc, char* argv[])
 	while (true)
 	{
 		PCAPPacket_t* Pkt = ReadPCAP(PCAPFile); 
-		if (!Pkt) break;
+		if (!Pkt)
+		{
+			fprintf(stderr, "no more packets exiting\n");
+			break;
+		}
 
 		PCAPFile->TS = PCAPTimeStamp(Pkt);
 
@@ -1270,7 +1292,11 @@ int main(int argc, char* argv[])
 			// push everything out (e.g. for long runs constantly push to log file)
 			fflush(stdout);
 			fflush(stderr);
-			if (TotalPkt > s_MaxPackets) break;
+			if (TotalPkt > s_MaxPackets)
+			{
+				fprintf(stderr, "Maxpackets reached exiting: %lli %lli\n", TotalPkt, s_MaxPackets);
+				break;
+			}
 
 			// flush tcp/streams to disk
 			for (int i=0; i < s_FlowListMax; i++)
