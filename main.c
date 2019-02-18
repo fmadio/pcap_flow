@@ -600,6 +600,7 @@ int main(int argc, char* argv[])
 
 	for (int i=1; i < argc; i++)
 	{
+		fprintf(stderr, "[%s]\n", argv[i]);
 		if (argv[i][0] != '-')
 		{
 			strcpy(FileNameList[FileNameListPos], argv[i]);
@@ -611,14 +612,14 @@ int main(int argc, char* argv[])
 			{
 				s_MaxPackets = atoll(argv[i+1]); 
 				i+= 1;
-				fprintf(stderr, "setting maximum number of packets to %lli\n", s_MaxPackets);
+				fprintf(stderr, "    setting maximum number of packets to %lli\n", s_MaxPackets);
 			}
 			// set the maximum number of flows
 			else if (strcmp(argv[i], "--flow-max") == 0)
 			{
 				u32 FlowMax = (u32)atof(argv[i+1]); 
 				i++;
-				fprintf(stderr, "set max flow count to %i\n", FlowMax);
+				fprintf(stderr, "    set max flow count to %i\n", FlowMax);
 				FlowAlloc(FlowMax);							// default flow count
 			}
 			// set the number of bits for the hash index 
@@ -626,7 +627,7 @@ int main(int argc, char* argv[])
 			{
 				u32 HashBits = (u32)atoi(argv[i+1]); 
 				i++;
-				fprintf(stderr, "set Hash Bit Depth to %i\n", HashBits);
+				fprintf(stderr, "    set Hash Bit Depth to %i\n", HashBits);
 				s_FlowIndexBits = HashBits;
 			}
 
@@ -635,7 +636,7 @@ int main(int argc, char* argv[])
 				u32 FlowID = atoi(argv[i+1]); 
 				if (FlowID >= sizeof(s_FlowExtract))
 				{
-					fprintf(stderr, "flow overflow\n");
+					fprintf(stderr, "    flow overflow\n");
 					return 0;
 				}
 				s_FlowExtract[ FlowID ] = 1<<7;
@@ -683,7 +684,7 @@ int main(int argc, char* argv[])
 				Mask[2] = atoi(Segment[6]);
 				Mask[3] = atoi(Segment[7]);
 
-				fprintf(stderr, "extract ip range %i.%i.%i.%i/%i.%i.%i.%i\n", 
+				fprintf(stderr, "    extract ip range %i.%i.%i.%i/%i.%i.%i.%i\n", 
 						IP[0],
 						IP[1],
 						IP[2],
@@ -706,7 +707,7 @@ int main(int argc, char* argv[])
 				s_ExtractPortMax		= atoi(argv[i+2]); 
 				i+= 2;
 
-				fprintf(stderr, "extract port range: %i-%i\n", s_ExtractPortMin, s_ExtractPortMax);
+				fprintf(stderr, "    extract port range: %i-%i\n", s_ExtractPortMin, s_ExtractPortMax);
 			}
 			// extract the specified flow as tcp stream
 			else if (strcmp(argv[i], "--extract-tcp") == 0)
@@ -716,7 +717,7 @@ int main(int argc, char* argv[])
 				s_ExtractTCPFlow[ FlowID ] = 1;
 				i++;
 
-				fprintf(stderr, "extract tcp flow %i\n", FlowID);
+				fprintf(stderr, "     extract tcp flow %i\n", FlowID);
 			}
 			// extract all tcp flows with the matching port 
 			else if (strcmp(argv[i], "--extract-tcp-port") == 0)
@@ -728,7 +729,7 @@ int main(int argc, char* argv[])
 				s_ExtractTCPPortMax 	= PortMax; 
 				i += 2;	
 
-				fprintf(stderr, "extract all tcp flow with port %i-%i\n", PortMin, PortMax);
+				fprintf(stderr, "     extract all tcp flow with port %i-%i\n", PortMin, PortMax);
 			}
 			// extract all tcp flows 
 			else if (strcmp(argv[i], "--extract-tcp-all") == 0)
@@ -736,7 +737,7 @@ int main(int argc, char* argv[])
 				s_ExtractTCPPortEnable 	= true;					
 				s_ExtractTCPPortMin 	= 0; 
 				s_ExtractTCPPortMax 	= 0x10000; 
-				fprintf(stderr, "extract all tcp flow with port %i-%i\n", s_ExtractTCPPortMin, s_ExtractTCPPortMax);
+				fprintf(stderr, "    extract all tcp flow with port %i-%i\n", s_ExtractTCPPortMin, s_ExtractTCPPortMax);
 			}
 			// disable port range 
 			else if (strcmp(argv[i], "--disable-tcp-port") == 0)
@@ -749,7 +750,7 @@ int main(int argc, char* argv[])
 
 				i += 2;	
 
-				fprintf(stderr, "disable tcp extraction on ports [%i] %i-%i\n", s_DisableTCPPortCnt-1, PortMin, PortMax);
+				fprintf(stderr, "    disable tcp extraction on ports [%i] %i-%i\n", s_DisableTCPPortCnt-1, PortMin, PortMax);
 			}
 			// extract udp flows within the specified range to individual files
 			else if (strcmp(argv[i], "--extract-udp-port") == 0)
@@ -761,7 +762,7 @@ int main(int argc, char* argv[])
 				s_ExtractUDPPortMax 	= PortMax; 
 			 	i += 2;	
 
-				fprintf(stderr, "extract all udp flow`s with port %i-%i\n", PortMin, PortMax);
+				fprintf(stderr, "    extract all udp flow`s with port %i-%i\n", PortMin, PortMax);
 			}
 			// extract udp all ports 
 			else if (strcmp(argv[i], "--extract-udp-all") == 0)
@@ -770,7 +771,7 @@ int main(int argc, char* argv[])
 				s_ExtractUDPPortMin 	= 0; 
 				s_ExtractUDPPortMax 	= 65535; 
 
-				fprintf(stderr, "extract all udp flows\n");
+				fprintf(stderr, "    extract all udp flows\n");
 			}
 			// input is from stdin 
 			else if (strcmp(argv[i], "--stdin") == 0)
@@ -778,13 +779,13 @@ int main(int argc, char* argv[])
 				TCPOutputFileName 	= "stdin"; 
 				UDPOutputFileName 	= "stdin"; 
 				FileStdin 		= true;
-				fprintf(stderr, "reading PCAP from stdin\n");
+				fprintf(stderr, "    reading PCAP from stdin\n");
 			}
 			// minimum number of packets 
 			else if (strcmp(argv[i], "--flow-packet-min") == 0)
 			{
 				s_FlowListPacketMin = atoi(argv[i+1]);
-				fprintf(stderr, "minimum packet count %lli\n", s_FlowListPacketMin);
+				fprintf(stderr, "    minimum packet count %lli\n", s_FlowListPacketMin);
 			}
 			// display flow info
 			else if (strcmp(argv[i], "--disable-display") == 0)
@@ -795,21 +796,21 @@ int main(int argc, char* argv[])
 			else if (strcmp(argv[i], "--tcpheader") == 0)
 			{
 				g_EnableTCPHeader =true;
-				fprintf(stderr, "enabling output tcp header\n");
+				fprintf(stderr, "    enabling output tcp header\n");
 			}
 			// UDP output file
 			else if (strcmp(argv[i], "--output-udp") == 0)
 			{
 				UDPOutputFileName = argv[i+1];
 				i++;
-				fprintf(stderr, "writing UDP PCAP to [%s]\n", UDPOutputFileName);
+				fprintf(stderr, "    writing UDP PCAP to [%s]\n", UDPOutputFileName);
 			}
 			// TCP output file
 			else if (strcmp(argv[i], "--output-tcp") == 0)
 			{
 				TCPOutputFileName = argv[i+1];
 				i++;
-				fprintf(stderr, "writing TCP PCAP to [%s]\n", TCPOutputFileName);
+				fprintf(stderr, "    writing TCP PCAP to [%s]\n", TCPOutputFileName);
 			}
 			// pin to a specific CPU
 			else if (strcmp(argv[i], "--cpu") == 0)
@@ -825,13 +826,13 @@ int main(int argc, char* argv[])
 			}
 			else if (strcmp(argv[i], "--verbose") == 0)
 			{
-				fprintf(stderr, "enable verbose mode\n");
+				fprintf(stderr, "    enable verbose mode\n");
 				g_Verbose = true;
 			}
 
 			else
 			{
-				fprintf(stderr, "unknown option [%s]\n", argv[i]);
+				fprintf(stderr, "    unknown option [%s]\n", argv[i]);
 				return 0;
 			}
 		}
