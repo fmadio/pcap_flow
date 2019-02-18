@@ -111,6 +111,9 @@ bool			g_Verbose				= false;				// verbose print mode
 static u32*					s_FlowIndex;						// 24b index into first level list 
 static u64					s_FlowIndexBits = 24;				// bit depth of the hash index, default to 24b / 64MB
 static u64					s_FlowIndexMask;					// bit mask for for the hash depth 
+static u32					s_FlowIndexDepthMax;				// current max depth of an index 
+static u64					s_FlowIndexDepthS0;					// calculate mean depth 
+static u64					s_FlowIndexDepthS1;					// calculate mean depth 
 
 static FlowHash_t*			s_FlowList;							// statically allocated max number of flows 
 static u32					s_FlowListPos = 1;					// current allocated flow
@@ -422,12 +425,16 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 	u32 FlowIndex 	= 0;
 	bool IsFlowNew 	= false;
 
+	u32 HashDepth	= 0;
+
 	if (s_FlowIndex[Index] != 0)
 	{
 		F = s_FlowList +  s_FlowIndex[Index];
 		bool Found = false;
 		for (int t=0; t < 1e6; t++)
 		{
+			HashDepth++;
+
 			// flow matched
 			if (memcmp(F->Data, Flow->Data, 64) == 0)
 			{
@@ -439,6 +446,11 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 			F = s_FlowList + F->Next;
 			assert(t < 99e3);
 		}
+
+		// keep stats on the max depth
+		s_FlowIndexDepthMax = (s_FlowIndexDepthMax  < HashDepth) ? HashDepth : s_FlowIndexDepthMax;
+		s_FlowIndexDepthS0	+= 1; 
+		s_FlowIndexDepthS1	+= HashDepth; 
 
 		// new flow
 		if (Found)
@@ -829,7 +841,6 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "    enable verbose mode\n");
 				g_Verbose = true;
 			}
-
 			else
 			{
 				fprintf(stderr, "    unknown option [%s]\n", argv[i]);
@@ -948,6 +959,8 @@ int main(int argc, char* argv[])
 	u64 NextPrintTSC 	= 0;
 	u64 StartTSC		= rdtsc();	
 	u64 OutputByte		= 0;
+	u64 OutputTCPByte	= 0;
+	u64 OutputUDPByte	= 0;
 	while (true)
 	{
 		PCAPPacket_t* Pkt = ReadPCAP(PCAPFile); 
@@ -1140,6 +1153,8 @@ int main(int argc, char* argv[])
 				u32 TCPPayloadLength = 0;
 				u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
 				fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
+
+				OutputTCPByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
 			}
 		}
 
@@ -1198,6 +1213,7 @@ int main(int argc, char* argv[])
 				assert(Stream != NULL);
 
 				fUDPStream_Add(Stream, PCAPFile->TS, Pkt);
+				OutputUDPByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
 			}
 		}
 
@@ -1283,6 +1299,8 @@ int main(int argc, char* argv[])
 			double ETA = PCAPFile->Length * (TotalTime / (double)TotalByte);
 			double Min = (ETA - TotalTime) / 60e9;
 
+			double MeanHashDepth = s_FlowIndexDepthS1 * inverse(s_FlowIndexDepthS0);
+
 			u64 TSf = PCAPFile->TS; 
 			fprintf(stderr, "[%s %.3f%%] ", FormatTS(TSf), PCAPFile->ReadPos / (double)PCAPFile->Length); 
 			fprintf(stderr, "Flows:%i ", s_FlowListPos);
@@ -1292,8 +1310,11 @@ int main(int argc, char* argv[])
 					TotalByte / 1e9
 			);
 			fprintf(stderr, "Out:%.2fGB ", OutputByte / 1e9);
+			fprintf(stderr, "OutTCP:%.2fGB ", OutputTCPByte / 1e9);
+			fprintf(stderr, "OutUDP:%.2fGB ", OutputUDPByte / 1e9);
 			fprintf(stderr, "Memory:%.2fMB ", g_TotalMemory / 1e6); 
 			fprintf(stderr, "MemoryTCP:%.2fMB ", g_TotalMemoryTCP / 1e6); 
+			fprintf(stderr, "HashDepth:%i (%.3f)  ", s_FlowIndexDepthMax, MeanHashDepth);
 
 			fprintf(stderr, "\n");
 
