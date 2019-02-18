@@ -1,6 +1,6 @@
 //---------------------------------------------------------------------------------------------
 //
-// Copyright (c) 2015, fmad engineering llc 
+// Copyright (c) 2015-2019, fmad engineering llc 
 //
 // The MIT License (MIT) see LICENSE file for details 
 // 
@@ -109,6 +109,8 @@ bool			g_Verbose				= false;				// verbose print mode
 // first level index 
 
 static u32*					s_FlowIndex;						// 24b index into first level list 
+static u64					s_FlowIndexBits = 24;				// bit depth of the hash index, default to 24b / 64MB
+static u64					s_FlowIndexMask;					// bit mask for for the hash depth 
 
 static FlowHash_t*			s_FlowList;							// statically allocated max number of flows 
 static u32					s_FlowListPos = 1;					// current allocated flow
@@ -118,7 +120,6 @@ static u64					s_FlowListPacketMin 	= 0;		// minimum number of packets to show e
 
 static u8*					s_FlowExtract 			= NULL;		// boolean to extract the specified flow id
 static bool					s_FlowExtractEnable 	= false;	// indicaes flow extraction 
-static u32					s_FlowExtractMax		= 1024*1024;
 
 static u32					s_ExtractTCPEnable 		= false;	// request extraction of tcp stream
 static u8*					s_ExtractTCPFlow		= NULL;		// boolean to extract the specified flow id
@@ -315,6 +316,7 @@ static UDPHeader_t* PCAPUDPHeader(PCAPPacket_t* Pkt)
 }
 
 //---------------------------------------------------------------------------------------------
+
 static void PrintMAC(FILE* Out, u8* MAC)
 {
 	fprintf(Out, "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -336,7 +338,6 @@ static void PrintIP4(FILE* Out, IP4_t IP)
 
 static void PrintFlowTCP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 {
-
 	TCPHash_t* TCP = (TCPHash_t*)F->Data;
 	fprintf(Out, "%5i FlowID: %8i | TCP  ", FlowCnt, FlowID); 	
 	PrintMAC(Out, TCP->MACSrc);
@@ -394,6 +395,7 @@ static void PrintFlowUDP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 }
 
 //---------------------------------------------------------------------------------------------
+
 static u32 FlowHash(u32 Type, u8* Payload, u32 Length)
 {
 	// DEK packets usually have enough entropy for this to be enough 
@@ -409,18 +411,16 @@ static u32 FlowHash(u32 Type, u8* Payload, u32 Length)
 
 static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS) 
 {
-	if (s_FlowListPos >= s_FlowExtractMax) return 0;
+	if (s_FlowListPos >= s_FlowListMax) return 0;
 
-
-	FlowHash_t* F = NULL; 
+	FlowHash_t* F 	= NULL; 
 
 	// first level has is 24b index, followed by list of leaf nodes
+	u32 Hash 		= FlowHash(Flow->Type, (u8*)Flow->Data, 64);
+	u32 Index 		= Hash & s_FlowIndexMask;
 
-	u32 Hash 	= FlowHash(Flow->Type, (u8*)Flow->Data, 64);
-	u32 Index 	= Hash & 0x00ffffff;
-
-	u32 FlowIndex = 0;
-	bool IsFlowNew = false;
+	u32 FlowIndex 	= 0;
+	bool IsFlowNew 	= false;
 
 	if (s_FlowIndex[Index] != 0)
 	{
@@ -562,11 +562,10 @@ static void print_usage(void)
 	fprintf(stderr, "\n");
 }
 
-
 //---------------------------------------------------------------------------------------------
 static void FlowAlloc(u32 FlowMax)
 {
-	s_FlowListMax = FlowMax;
+	s_FlowListMax 		= FlowMax;
 
 	if (s_FlowExtract)		free(s_FlowExtract);
 	if (s_ExtractTCPFlow)	free(s_ExtractTCPFlow);
@@ -621,6 +620,15 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "set max flow count to %i\n", FlowMax);
 				FlowAlloc(FlowMax);							// default flow count
 			}
+			// set the number of bits for the hash index 
+			else if (strcmp(argv[i], "--hash-bits") == 0)
+			{
+				u32 HashBits = (u32)atoi(argv[i+1]); 
+				i++;
+				fprintf(stderr, "set Hash Bit Depth to %i\n", HashBits);
+				s_FlowIndexBits = HashBits;
+			}
+
 			else if (strcmp(argv[i], "--extract") == 0)
 			{
 				u32 FlowID = atoi(argv[i+1]); 
@@ -828,7 +836,6 @@ int main(int argc, char* argv[])
 		}
 	}
 
-
 	// needs atleast 2 files
 	if (!(FileStdin) && (FileNameListPos <= 0))
 	{
@@ -897,10 +904,11 @@ int main(int argc, char* argv[])
 	localtime_r(&t, &lt);
 	s_TimeZoneOffset = lt.tm_gmtoff * 1e9;
 
-	s_FlowIndex = (u32*)malloc( sizeof(u32)*(1ULL<<24));
+	s_FlowIndex = (u32*)malloc( sizeof(u32)*(1ULL<<s_FlowIndexBits));
 	assert(s_FlowIndex  != NULL);
-	memset(s_FlowIndex, 0, sizeof(u32)*(1ULL<<24));
-	g_TotalMemory 		+= sizeof(u32)*(1ULL<<24);
+	memset(s_FlowIndex, 0, sizeof(u32)*(1ULL<<s_FlowIndexBits));
+	g_TotalMemory 		+= sizeof(u32)*(1ULL<<s_FlowIndexBits);
+	s_FlowIndexMask		= (1<< s_FlowIndexBits) - 1;
 
 	s_FlowList 			= (FlowHash_t*)malloc( sizeof(FlowHash_t) * s_FlowListMax ); 
 	memset(s_FlowList, 0, sizeof(FlowHash_t) * s_FlowListMax );
@@ -1192,7 +1200,6 @@ int main(int argc, char* argv[])
 		}
 
 		// extract all IP`s that match the mask
-
 		if (s_ExtractIPEnable)
 		{
 			IP4Header_t* IP4 = PCAPIP4Header(Pkt); 
@@ -1216,7 +1223,6 @@ int main(int argc, char* argv[])
 		}
 
 		// extract UDP port
-
 		if (s_ExtractPortEnable)
 		{
 			bool Extract = false;
@@ -1299,13 +1305,19 @@ int main(int argc, char* argv[])
 			}
 
 			// flush tcp/streams to disk
-			for (int i=0; i < s_FlowListMax; i++)
+			static u32 FlowFlush = 0;
+
+			// only flush 5K flows at a time
+			u32 FlushCnt = (s_FlowListMax > 5000) ? 50000 : s_FlowListMax;
+			for (int i=0; i < FlushCnt; i++)
 			{
-				if (s_ExtractTCP[i])
+				if (s_ExtractTCP[FlowFlush])
 				{
 					//fprintf(stderr, "[%i] TCP Flush\n", i);
-					fTCPStream_Flush(s_ExtractTCP[i]);
+					fTCPStream_Flush(s_ExtractTCP[FlowFlush]);
 				}
+				FlowFlush++;
+				if (FlowFlush >= s_FlowListMax) FlowFlush = 0;
 			}
 		}
 	}

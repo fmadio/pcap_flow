@@ -1,6 +1,6 @@
 //---------------------------------------------------------------------------------------------
 //
-// Copyright (c) 2015, fmad engineering llc 
+// Copyright (c) 2015 fmad engineering llc 
 //
 // The MIT License (MIT) see LICENSE file for details 
 //
@@ -328,7 +328,6 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			s_TCPBufferPacketTotal 	-= 1;
 		}
 		S->BufferListPos = 0;
-
 
 		// parse options
 		u32 OLen = (4*swap16(TCP->Flags) >> 12) - 20;
