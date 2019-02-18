@@ -551,6 +551,7 @@ static void print_usage(void)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "  --packet-max  <number>                   | only process the first <number> packets\n");
 	fprintf(stderr, "  --flow-max  <number>                     | sets max flow count to <number> packets\n");
+	fprintf(stderr, "  --flow-hash-bits  <number>               | sets number of bits to use for the flow hash index\n");
 	fprintf(stderr, "  --extract <number>                       | extract FlowID <number> into the output PCAP file\n");
 	fprintf(stderr, "  --extract-tcp <number>                   | extract FlowID <number> as a TCP stream to the output file name\n"); 
 	fprintf(stderr, "  --extract-tcp-port <min port> <max port> | extract all TCP flows with the specified port in src or dest\n");
@@ -621,7 +622,7 @@ int main(int argc, char* argv[])
 				FlowAlloc(FlowMax);							// default flow count
 			}
 			// set the number of bits for the hash index 
-			else if (strcmp(argv[i], "--hash-bits") == 0)
+			else if (strcmp(argv[i], "--flow-hash-bits") == 0)
 			{
 				u32 HashBits = (u32)atoi(argv[i+1]); 
 				i++;
