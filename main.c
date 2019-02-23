@@ -23,6 +23,7 @@
 #include <pthread.h>
 
 #include "fTypes.h"
+#include "fProfile.h"
 #include "tcpstream.h"
 #include "udpstream.h"
 
@@ -55,6 +56,7 @@ typedef struct
 {
 	u64		Data[64/8];			// protocol specific unique hash
 
+	u32		Hash;				// copy of the flow hash
 	u32		Type;				// what kind of flow is this
 
 	u64		PktCnt;				// number of packets in this flow
@@ -157,6 +159,10 @@ static char					s_FlowLogPath[128];					// where to store the flow log
 static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 
 static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
+
+//---------------------------------------------------------------------------------------------
+
+void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
 
 //---------------------------------------------------------------------------------------------
 // mmaps a pcap file in full
@@ -401,12 +407,54 @@ static void PrintFlowUDP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 
 static u32 FlowHash(u32 Type, u8* Payload, u32 Length)
 {
+	// generate SHA1
+	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
+
+	// hash the first 64B
+	sha1_compress(SHA1State, (u8*)Payload);
+
+	u8* Data8 = (u8*)SHA1State;
+
+	// FNV1a 80b hash 
+	const u32 Prime  = 0x01000193; //   16777619
+	const u32  Seed  = 0x811C9DC5; // 2166136261
+
+	u32 Hash = Seed;
+	Hash = ((u32)Data8[ 0] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 1] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 2] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 3] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[ 4] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 5] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 6] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 7] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[ 8] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 9] ^ Hash) * Prime;
+	Hash = ((u32)Data8[10] ^ Hash) * Prime;
+	Hash = ((u32)Data8[11] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[12] ^ Hash) * Prime;
+	Hash = ((u32)Data8[13] ^ Hash) * Prime;
+	Hash = ((u32)Data8[14] ^ Hash) * Prime;
+	Hash = ((u32)Data8[15] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[16] ^ Hash) * Prime;
+	Hash = ((u32)Data8[17] ^ Hash) * Prime;
+	Hash = ((u32)Data8[18] ^ Hash) * Prime;
+	Hash = ((u32)Data8[19] ^ Hash) * Prime;
+
+	/*
 	// DEK packets usually have enough entropy for this to be enough 
 	u32 Hash = Type; 
 	for (int i=0; i < Length; i++)
 	{
 		Hash = ((Hash << 5ULL) ^ (Hash >> (32-5))) ^ (u64)Payload[i];
 	}
+	*/
+
+	// reduce to a 32b hash
 	return Hash;
 }
 
@@ -419,8 +467,8 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 	FlowHash_t* F 	= NULL; 
 
 	// first level has is 24b index, followed by list of leaf nodes
-	u32 Hash 		= FlowHash(Flow->Type, (u8*)Flow->Data, 64);
-	u32 Index 		= Hash & s_FlowIndexMask;
+	Flow->Hash 		= FlowHash(Flow->Type, (u8*)Flow->Data, 64);
+	u32 Index 		= Flow->Hash & s_FlowIndexMask;
 
 	u32 FlowIndex 	= 0;
 	bool IsFlowNew 	= false;
@@ -448,7 +496,14 @@ static u32 FlowAdd(FlowHash_t* Flow, u32 PktLength, u64 TS)
 		}
 
 		// keep stats on the max depth
-		s_FlowIndexDepthMax = (s_FlowIndexDepthMax  < HashDepth) ? HashDepth : s_FlowIndexDepthMax;
+		if (s_FlowIndexDepthMax  < HashDepth)
+		{
+			fprintf(stderr, "Hash New Max Depth: %i : %08x : ", HashDepth, Flow->Hash); 
+			for (int i=0; i < 64/8; i++) fprintf(stderr, "%016llx ", Flow->Data[i]);
+			fprintf(stderr, "\n");
+
+			s_FlowIndexDepthMax = HashDepth;
+		}
 		s_FlowIndexDepthS0	+= 1; 
 		s_FlowIndexDepthS1	+= HashDepth; 
 
@@ -565,9 +620,12 @@ static void print_usage(void)
 	fprintf(stderr, "  --flow-max  <number>                     | sets max flow count to <number> packets\n");
 	fprintf(stderr, "  --flow-hash-bits  <number>               | sets number of bits to use for the flow hash index\n");
 	fprintf(stderr, "  --extract <number>                       | extract FlowID <number> into the output PCAP file\n");
+	fprintf(stderr, "  --extract-port <min port>  <max port>    | extract ports between min/max\n");
+	fprintf(stderr, "  --extract-ip <address/netmask>           | extract only a subnet\n");
 	fprintf(stderr, "  --extract-tcp <number>                   | extract FlowID <number> as a TCP stream to the output file name\n"); 
 	fprintf(stderr, "  --extract-tcp-port <min port> <max port> | extract all TCP flows with the specified port in src or dest\n");
 	fprintf(stderr, "  --extract-tcp-all                        | extract all TCP flows\n");
+	fprintf(stderr, "  --disable-tcp-port <min port> <max port> | do not extract TCP ports within this range\n");
 	fprintf(stderr, "  --stdin                                  | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin\n"); 
 	fprintf(stderr, "  --flow-packet-min <number>               | minimum packet count to display flow info\n"); 
 	fprintf(stderr, "  --disable-display                        | do not display flow information to stdout\n");
@@ -963,12 +1021,19 @@ int main(int argc, char* argv[])
 	u64 OutputUDPByte	= 0;
 	while (true)
 	{
+		fProfile_Start(0, "Top");
+
+		fProfile_Start(1, "Fetch");
+
 		PCAPPacket_t* Pkt = ReadPCAP(PCAPFile); 
 		if (!Pkt)
 		{
 			fprintf(stderr, "no more packets exiting\n");
 			break;
 		}
+
+		fProfile_Stop(1);
+		fProfile_Start(2, "Decode");
 
 		PCAPFile->TS = PCAPTimeStamp(Pkt);
 
@@ -1043,244 +1108,261 @@ int main(int argc, char* argv[])
 				HashLength = 64; 
 			}
 			break;
+
+			default:
+				//printf("ipv4 %x\n", IP4->Proto);
+				break;
 			}
 		}
 		break;
+
+		default:
+			//printf("proto: %08x\n", swap16(Ether->Proto) );
+			break;
 		}
+
+		fProfile_Stop(2);
 
 		// not valid TCP or UDP data
-		if (HashLength == 0)
+		if (HashLength != 0)
 		{
-			continue;
-		}
-
-		u32 FlowID = 0;
-		if (HashLength > 0)
-		{
-			FlowID = FlowAdd(&Flow, Pkt->Length, PCAPFile->TS);
-		}
-
-		if ((FlowID != 0) && s_FlowExtract[ FlowID ])
-		{
-			if (OutPCAP)
+			fProfile_Start(3, "FlowAdd");
+			u32 FlowID = 0;
+			if (HashLength > 0)
 			{
-				fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
-				OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+				FlowID = FlowAdd(&Flow, Pkt->Length, PCAPFile->TS);
 			}
-		}
 
-		// extract all tcp flows with the specified port range
-		if (Flow.Type == FLOW_TYPE_TCP)
-		{
-			TCPHeader_t* TCPHeader 	= PCAPTCPHeader(Pkt);
-			TCPHash_t* TCP 			= (TCPHash_t*)Flow.Data;
-
-			bool Output = false; 
-			// tcp port ranges
-			if (s_ExtractTCPPortEnable)
+			if ((FlowID != 0) && s_FlowExtract[ FlowID ])
 			{
-				Output |= (TCP->PortSrc >= s_ExtractTCPPortMin) && (TCP->PortSrc <= s_ExtractTCPPortMax);
-				Output |= (TCP->PortDst >= s_ExtractTCPPortMin) && (TCP->PortDst <= s_ExtractTCPPortMax);
-
-				// disable port range
-				for (int d=0; d < s_DisableTCPPortCnt; d++)
+				if (OutPCAP)
 				{
-					if ((TCP->PortSrc >= s_DisableTCPPortMin[d]) && (TCP->PortSrc <= s_DisableTCPPortMax[d]))
-					{
-						Output = false;	
-					}
-					if ((TCP->PortDst >= s_DisableTCPPortMin[d]) && (TCP->PortDst <= s_DisableTCPPortMax[d]))
-					{
-						Output = false;	
-					}
+					fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
+					OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
 				}
 			}
-			// specific flow id`s
-			if (s_ExtractTCPEnable && s_ExtractTCPFlow[FlowID])
-			{
-				Output = true;
-			}
-				
-			if (Output)
-			{
-				// new flow ? 	
-				struct TCPStream_t* Stream = s_ExtractTCP[FlowID];
-				if (Stream == NULL)
-				{
-					char FileName[1024];
-					sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
-							TCPOutputFileName,
-							
-							TCP->MACSrc[0],	
-							TCP->MACSrc[1],	
-							TCP->MACSrc[2],	
-							TCP->MACSrc[3],	
-							TCP->MACSrc[4],	
-							TCP->MACSrc[5],	
-	
-							TCP->MACDst[0],	
-							TCP->MACDst[1],	
-							TCP->MACDst[2],	
-							TCP->MACDst[3],	
-							TCP->MACDst[4],	
-							TCP->MACDst[5],	
+			fProfile_Stop(3);
 
-							TCP->IPSrc.IP[0],
-							TCP->IPSrc.IP[1],
-							TCP->IPSrc.IP[2],
-							TCP->IPSrc.IP[3],
-
-							TCP->IPDst.IP[0],
-							TCP->IPDst.IP[1],
-							TCP->IPDst.IP[2],
-							TCP->IPDst.IP[3],
-
-							TCP->PortSrc,
-							TCP->PortDst
-		  			);
-
-					Stream = fTCPStream_Init(kMB(128), FileName, FlowID, PCAPFile->TS);
-					s_ExtractTCP[FlowID] = Stream;
-				}
-				if (Stream == NULL)
-				{
-					printf("invalid flwo: %i\n", FlowID);
-				}
-				assert(Stream != NULL);
-
-				// add packet to the stream
-
-				u32 TCPPayloadLength = 0;
-				u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
-				fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
-
-				OutputTCPByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
-			}
-		}
-
-		// extract all udp flows  
-		if (s_ExtractUDPPortEnable && (Flow.Type == FLOW_TYPE_UDP))
-		{
-			UDPHeader_t* UDPHeader 	= PCAPUDPHeader(Pkt);
-			UDPHash_t* UDP 			= (UDPHash_t*)Flow.Data;
-
-			bool Output = false; 
-			Output |= (UDP->PortSrc >= s_ExtractUDPPortMin) && (UDP->PortSrc <= s_ExtractUDPPortMax);
-			Output |= (UDP->PortDst >= s_ExtractUDPPortMin) && (UDP->PortDst <= s_ExtractUDPPortMax);
-
-			if (Output)
-			{
-				// new flow ? 	
-				struct UDPStream_t* Stream = s_ExtractUDP[FlowID];
-				if (Stream == NULL)
-				{
-					char FileName[256];
-					sprintf(FileName, "%s_%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%i->%i",
-							UDPOutputFileName,
-
-							FormatTS(PCAPFile->TS),
-							
-							UDP->MACSrc[0],	
-							UDP->MACSrc[1],	
-							UDP->MACSrc[2],	
-							UDP->MACSrc[3],	
-							UDP->MACSrc[4],	
-							UDP->MACSrc[5],	
-	
-							UDP->MACDst[0],	
-							UDP->MACDst[1],	
-							UDP->MACDst[2],	
-							UDP->MACDst[3],	
-							UDP->MACDst[4],	
-							UDP->MACDst[5],	
-
-							UDP->IPSrc.IP[0],
-							UDP->IPSrc.IP[1],
-							UDP->IPSrc.IP[2],
-							UDP->IPSrc.IP[3],
-
-							UDP->IPDst.IP[0],
-							UDP->IPDst.IP[1],
-							UDP->IPDst.IP[2],
-							UDP->IPDst.IP[3],
-
-							UDP->PortSrc,
-							UDP->PortDst
-		  			);
-					Stream = fUDPStream_Init(FileName, FlowID, PCAPFile->TS);
-					s_ExtractUDP[FlowID] = Stream;
-				}
-				assert(Stream != NULL);
-
-				fUDPStream_Add(Stream, PCAPFile->TS, Pkt);
-				OutputUDPByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
-			}
-		}
-
-		// extract all IP`s that match the mask
-		if (s_ExtractIPEnable)
-		{
-			IP4Header_t* IP4 = PCAPIP4Header(Pkt); 
-
-			bool Extract = false;
-
-			if ((IP4->Src.IP4 & s_ExtractIPMask) == s_ExtractIPMatch)
-			{
-				Extract = true;
-			}
-			if ((IP4->Dst.IP4 & s_ExtractIPMask) == s_ExtractIPMatch)
-			{
-				Extract = true;
-			}
-
-			if (Extract && OutPCAP)
-			{
-				fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
-				OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
-			}
-		}
-
-		// extract UDP port
-		if (s_ExtractPortEnable)
-		{
-			bool Extract = false;
-			u32 PortSrc = 0;
-			u32 PortDst = 0;
-			if (Flow.Type == FLOW_TYPE_UDP)
-			{
-				UDPHeader_t* UDP = PCAPUDPHeader(Pkt); 
-
-				PortSrc = swap16(UDP->PortSrc);
-				PortDst = swap16(UDP->PortDst);
-			}
+			// extract all tcp flows with the specified port range
+			fProfile_Start(4, "TCP Flow");
 			if (Flow.Type == FLOW_TYPE_TCP)
 			{
-				TCPHeader_t* TCP = PCAPTCPHeader(Pkt); 
+				TCPHeader_t* TCPHeader 	= PCAPTCPHeader(Pkt);
+				TCPHash_t* TCP 			= (TCPHash_t*)Flow.Data;
 
-				PortSrc = swap16(TCP->PortSrc);
-				PortDst = swap16(TCP->PortDst);
+				bool Output = false; 
+				// tcp port ranges
+				if (s_ExtractTCPPortEnable)
+				{
+					Output |= (TCP->PortSrc >= s_ExtractTCPPortMin) && (TCP->PortSrc <= s_ExtractTCPPortMax);
+					Output |= (TCP->PortDst >= s_ExtractTCPPortMin) && (TCP->PortDst <= s_ExtractTCPPortMax);
+
+					// disable port range
+					for (int d=0; d < s_DisableTCPPortCnt; d++)
+					{
+						if ((TCP->PortSrc >= s_DisableTCPPortMin[d]) && (TCP->PortSrc <= s_DisableTCPPortMax[d]))
+						{
+							Output = false;	
+						}
+						if ((TCP->PortDst >= s_DisableTCPPortMin[d]) && (TCP->PortDst <= s_DisableTCPPortMax[d]))
+						{
+							Output = false;	
+						}
+					}
+				}
+				// specific flow id`s
+				if (s_ExtractTCPEnable && s_ExtractTCPFlow[FlowID])
+				{
+					Output = true;
+				}
+					
+				if (Output)
+				{
+					// new flow ? 	
+					struct TCPStream_t* Stream = s_ExtractTCP[FlowID];
+					if (Stream == NULL)
+					{
+						char FileName[1024];
+						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
+								TCPOutputFileName,
+								
+								TCP->MACSrc[0],	
+								TCP->MACSrc[1],	
+								TCP->MACSrc[2],	
+								TCP->MACSrc[3],	
+								TCP->MACSrc[4],	
+								TCP->MACSrc[5],	
+		
+								TCP->MACDst[0],	
+								TCP->MACDst[1],	
+								TCP->MACDst[2],	
+								TCP->MACDst[3],	
+								TCP->MACDst[4],	
+								TCP->MACDst[5],	
+
+								TCP->IPSrc.IP[0],
+								TCP->IPSrc.IP[1],
+								TCP->IPSrc.IP[2],
+								TCP->IPSrc.IP[3],
+
+								TCP->IPDst.IP[0],
+								TCP->IPDst.IP[1],
+								TCP->IPDst.IP[2],
+								TCP->IPDst.IP[3],
+
+								TCP->PortSrc,
+								TCP->PortDst
+						);
+
+						Stream = fTCPStream_Init(kMB(128), FileName, FlowID, Flow.Hash, PCAPFile->TS);
+						s_ExtractTCP[FlowID] = Stream;
+					}
+					if (Stream == NULL)
+					{
+						printf("invalid flwo: %i\n", FlowID);
+					}
+					assert(Stream != NULL);
+
+					// add packet to the stream
+			fProfile_Start(6, "TCP PktAdd");
+
+					u32 TCPPayloadLength = 0;
+					u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
+					fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
+
+			fProfile_Stop(6);
+
+					OutputTCPByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+				}
+			}
+			fProfile_Stop(4);
+
+			// extract all udp flows  
+			if (s_ExtractUDPPortEnable && (Flow.Type == FLOW_TYPE_UDP))
+			{
+				UDPHeader_t* UDPHeader 	= PCAPUDPHeader(Pkt);
+				UDPHash_t* UDP 			= (UDPHash_t*)Flow.Data;
+
+				bool Output = false; 
+				Output |= (UDP->PortSrc >= s_ExtractUDPPortMin) && (UDP->PortSrc <= s_ExtractUDPPortMax);
+				Output |= (UDP->PortDst >= s_ExtractUDPPortMin) && (UDP->PortDst <= s_ExtractUDPPortMax);
+
+				if (Output)
+				{
+					// new flow ? 	
+					struct UDPStream_t* Stream = s_ExtractUDP[FlowID];
+					if (Stream == NULL)
+					{
+						char FileName[256];
+						sprintf(FileName, "%s_%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%i->%i",
+								UDPOutputFileName,
+
+								FormatTS(PCAPFile->TS),
+								
+								UDP->MACSrc[0],	
+								UDP->MACSrc[1],	
+								UDP->MACSrc[2],	
+								UDP->MACSrc[3],	
+								UDP->MACSrc[4],	
+								UDP->MACSrc[5],	
+		
+								UDP->MACDst[0],	
+								UDP->MACDst[1],	
+								UDP->MACDst[2],	
+								UDP->MACDst[3],	
+								UDP->MACDst[4],	
+								UDP->MACDst[5],	
+
+								UDP->IPSrc.IP[0],
+								UDP->IPSrc.IP[1],
+								UDP->IPSrc.IP[2],
+								UDP->IPSrc.IP[3],
+
+								UDP->IPDst.IP[0],
+								UDP->IPDst.IP[1],
+								UDP->IPDst.IP[2],
+								UDP->IPDst.IP[3],
+
+								UDP->PortSrc,
+								UDP->PortDst
+						);
+						Stream = fUDPStream_Init(FileName, FlowID, PCAPFile->TS);
+						s_ExtractUDP[FlowID] = Stream;
+					}
+					assert(Stream != NULL);
+
+					fUDPStream_Add(Stream, PCAPFile->TS, Pkt);
+					OutputUDPByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+				}
 			}
 
-			if ((s_ExtractPortMin <= PortSrc) && 
-				(PortSrc <= s_ExtractPortMax))
+			// extract all IP`s that match the mask
+			if (s_ExtractIPEnable)
 			{
-				Extract = true;
+				IP4Header_t* IP4 = PCAPIP4Header(Pkt); 
+
+				bool Extract = false;
+
+				if ((IP4->Src.IP4 & s_ExtractIPMask) == s_ExtractIPMatch)
+				{
+					Extract = true;
+				}
+				if ((IP4->Dst.IP4 & s_ExtractIPMask) == s_ExtractIPMatch)
+				{
+					Extract = true;
+				}
+
+				if (Extract && OutPCAP)
+				{
+					fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
+					OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+				}
 			}
 
-			if ((s_ExtractPortMin <= PortDst) && 
-				(PortDst <= s_ExtractPortMax))
+			// extract UDP port
+			if (s_ExtractPortEnable)
 			{
-				Extract = true;
-			}
-			if (Extract && OutPCAP)
-			{
-				fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
-				OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+				bool Extract = false;
+				u32 PortSrc = 0;
+				u32 PortDst = 0;
+				if (Flow.Type == FLOW_TYPE_UDP)
+				{
+					UDPHeader_t* UDP = PCAPUDPHeader(Pkt); 
+
+					PortSrc = swap16(UDP->PortSrc);
+					PortDst = swap16(UDP->PortDst);
+				}
+				if (Flow.Type == FLOW_TYPE_TCP)
+				{
+					TCPHeader_t* TCP = PCAPTCPHeader(Pkt); 
+
+					PortSrc = swap16(TCP->PortSrc);
+					PortDst = swap16(TCP->PortDst);
+				}
+
+				if ((s_ExtractPortMin <= PortSrc) && 
+					(PortSrc <= s_ExtractPortMax))
+				{
+					Extract = true;
+				}
+
+				if ((s_ExtractPortMin <= PortDst) && 
+					(PortDst <= s_ExtractPortMax))
+				{
+					Extract = true;
+				}
+				if (Extract && OutPCAP)
+				{
+					fwrite(Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, 1, OutPCAP);
+					OutputByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+				}
 			}
 		}
 
 		TotalPkt++;
 		TotalByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
+
+		fProfile_Stop(0);
 
 		if (rdtsc() > NextPrintTSC)
 		{
@@ -1296,13 +1378,12 @@ int main(int argc, char* argv[])
 			LastByte = TotalByte;
 
 			double TotalTime = tsc2ns(TSC - StartTSC);
-			double ETA = PCAPFile->Length * (TotalTime / (double)TotalByte);
-			double Min = (ETA - TotalTime) / 60e9;
 
 			double MeanHashDepth = s_FlowIndexDepthS1 * inverse(s_FlowIndexDepthS0);
 
 			u64 TSf = PCAPFile->TS; 
 			fprintf(stderr, "[%s %.3f%%] ", FormatTS(TSf), PCAPFile->ReadPos / (double)PCAPFile->Length); 
+			fprintf(stderr, "%5.f Min ", TotalTime / 60e9);
 			fprintf(stderr, "Flows:%i ", s_FlowListPos);
 			fprintf(stderr, "%.2fM Pkts %8.3fGbps : %.2fGB ",
 					TotalPkt / 1e6, 
@@ -1327,11 +1408,21 @@ int main(int argc, char* argv[])
 				break;
 			}
 
+			static int cnt = 0;
+			if (cnt++ > 10)
+			{
+				cnt = 0;
+				fProfile_Dump(0);
+
+				// dump stats
+				fTCPStream_Dump(PCAPFile->TS);
+			}
+/*
 			// flush tcp/streams to disk
 			static u32 FlowFlush = 0;
 
 			// only flush 5K flows at a time
-			u32 FlushCnt = (s_FlowListMax > 5000) ? 50000 : s_FlowListMax;
+			u32 FlushCnt = (s_FlowListMax > 5000) ? 5000 : s_FlowListMax;
 			for (int i=0; i < FlushCnt; i++)
 			{
 				if (s_ExtractTCP[FlowFlush])
@@ -1342,6 +1433,7 @@ int main(int argc, char* argv[])
 				FlowFlush++;
 				if (FlowFlush >= s_FlowListMax) FlowFlush = 0;
 			}
+*/
 		}
 	}
 	fprintf(stderr, "parse done\n");
@@ -1360,7 +1452,7 @@ int main(int argc, char* argv[])
 	if (s_EnableFlowDisplay) PrintHumanFlows();	
 
 	// dump tcp stats
-	fTCPStream_Dump();
+	fTCPStream_Dump(PCAPFile->TS);
 }
 
 /* vim: set ts=4 sts=4 */

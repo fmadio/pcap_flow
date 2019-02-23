@@ -2,6 +2,9 @@ OBJS =
 OBJS += tcpstream.o
 OBJS += udpstream.o
 OBJS += main.o
+OBJS += sha1.o
+OBJS += fProfile.o
+OBJS += fFile.o
 
 DEF = 
 DEF += -O3 

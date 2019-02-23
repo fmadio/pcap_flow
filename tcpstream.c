@@ -23,7 +23,9 @@
 #include <errno.h>
 
 #include "fTypes.h"
+#include "fProfile.h"
 #include "tcpstream.h"
+#include "fFile.h"
 
 //---------------------------------------------------------------------------------------------
 
@@ -40,9 +42,10 @@ typedef struct
 
 typedef struct TCPStream_t 
 {
-	//int				fd;
-	FILE*			File;
+	u32				ID;						// unique ID for this stream
+	struct fFile_t*	File;
 	u32				FlowID;
+	u32				FlowHash;				// use the same has to index the tcp stream cache
 
 	u32				SeqNo;					// current/next expected tcp seq number
 
@@ -52,12 +55,15 @@ typedef struct TCPStream_t
 
 	char			Path[1024];				// full path 
 	u64				LastTSC;				// cycle counter when this file was last accessed 
+	u64				LastTS;
 
 	bool			IsFileCreate;			// has the output file been created yet. e.g. for
 											// file truncation
 
 	u64				WritePos;				// number of bytes written to output (including stream headers)
 	u32				WindowScale;			// tcp window scaling value
+
+	bool			IsTrace;				// debug this stream
 
 } TCPStream_t;
 
@@ -90,23 +96,17 @@ extern bool			g_Verbose;
 //---------------------------------------------------------------------------------------------
 
 static int			s_StreamCnt		= 0;
-static int			s_StreamMax		= 1024*1024;
-static TCPStream_t* s_Stream[1024*1024];
-
-// easy to run into maximum open file handles, thus only keep a small cache of open files 
-
-static bool			s_StreamCacheInit 		= false;			// init on first creation
-static u32			s_StreamCacheMax 		= 32*1024;			// NOTE: large number here requires
-																//       linux ulimit number to also be high 
-static TCPStream_t* s_StreamCache[32*1024];
+static int			s_StreamMax		= 4*1024*1024;
+static TCPStream_t* s_Stream[4*1024*1024];
 
 extern bool			g_EnableTCPHeader;
 
 static u64			s_TCPBufferMemoryTotal	= 0;				// total amount of gapped tcp data
 static u64			s_TCPBufferPacketTotal	= 0;				// total number of packets unclaimed
+static u32			s_TCPBufferMaxDepth		= 0;				// max depth of an OOO buffer
 
-static u64			s_TotalByte = 0;							// total number of bytes outputed in streams
-static u64			s_TotalPkt 	= 0;							// total number of packets output 
+static u64			s_TotalByte 			= 0;				// total number of bytes outputed in streams
+static u64			s_TotalPkt 				= 0;				// total number of packets output 
 
 //---------------------------------------------------------------------------------------------
 // converts tcpflags to our internal version
@@ -136,35 +136,34 @@ static u32 StreamTCPFlag(u32 TCPFlag)
 
 //---------------------------------------------------------------------------------------------
 
-TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u64 TS)
+TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u32 FlowHash, u64 TS)
 {
 	TCPStream_t* TCPStream = malloc( sizeof( TCPStream_t) );
 	assert(TCPStream != NULL);
 	memset(TCPStream, 0, sizeof( TCPStream_t) );
 	g_TotalMemory += sizeof( TCPStream_t);
 
-	TCPStream->SeqNo = 0;
-	TCPStream->BufferListPos = 0;
-	TCPStream->BufferListMax = 1*1024;
+	TCPStream->ID				= s_StreamCnt++;
+	assert(s_StreamCnt < s_StreamMax);
+
+	s_Stream[TCPStream->ID] 	= TCPStream;
+
+	TCPStream->SeqNo 			= 0;
+	TCPStream->BufferListPos 	= 0;
+	TCPStream->BufferListMax 	= 1*1024;
 
 	strncpy(TCPStream->Path, OutputName, sizeof(TCPStream->Path));
 	//TCPStream->fd = -1; 
-	TCPStream->File = NULL;
+	TCPStream->File 			= NULL;
 
-	TCPStream->FlowID 		= FlowID;
+	TCPStream->FlowID 			= FlowID;
+	TCPStream->FlowHash	 		= FlowHash;
 
-	TCPStream->IsFileCreate	= false;
+	TCPStream->IsFileCreate		= false;
 
-	TCPStream->WindowScale	= 1;
+	TCPStream->WindowScale		= 1;
 
-	// init cache
-	if (!s_StreamCacheInit)
-	{
-		s_StreamCacheInit = true;
-		memset(s_StreamCache, 0, sizeof(void *) * s_StreamCacheMax);
-	}
-
-	printf("[%s] FlowID:%i TCP Stream: [%s]\n", FormatTS(TS), FlowID, OutputName);
+	//printf("[%s] FlowID:%i TCP Stream: [%s]\n", FormatTS(TS), FlowID, OutputName);
 	return TCPStream; 
 }
 
@@ -172,52 +171,24 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u64 T
 
 static void fTCPStream_Open(TCPStream_t* S)
 {
-	// find oldest entry in the cache
-	u32 Index = 0;
-	u64 IndexTSC = 0; 
-	for (int i=0; i < s_StreamCacheMax; i++)
-	{
-		// empty slot, so use it
-		if (!s_StreamCache[i])
-		{
-			Index = i;
-			break;
-		}
+	fProfile_Start(10, "TCP PktAdd Open");
 
-		// found older entry 
-		if (s_StreamCache[i]->LastTSC < IndexTSC)
+	if (S->File == NULL)
+	{
+		fProfile_Start(15, "TCP IO Open");
+
+		//S->File = fopen64(S->Path, "w+"); 
+		S->File = fFile_Open(S->Path, "w+"); 
+		fProfile_Stop(15);
+
+		if (S->File == NULL) 
 		{
-			Index 	 = i;
-			IndexTSC = s_StreamCache[i]->LastTSC;
+			fprintf(stderr, "failed to create output file [%s] errno:%i (%s)\n", S->Path, errno, strerror(errno));
+			exit(-1);
 		}
 	}
 
-	// close eviected stream
-	if (s_StreamCache[ Index ])
-	{
-		//close(s_StreamCache[Index]->fd);
-		fclose(s_StreamCache[Index]->File);
-		//s_StreamCache[Index]->fd = -1;
-		s_StreamCache[Index]->File = NULL;
-	}
-	//printf("[%s] open file\n", S->Path);
-
-	// open and create entry 
-	int Flags = O_CREAT | O_RDWR;
-	Flags |= (!S->IsFileCreate) ? O_TRUNC : 0;
-
-
-	//S->fd = open64(S->Path, Flags, S_IRWXU);
-	//if (S->fd < 0)
-	S->File = fopen64(S->Path, "w+"); 
-	if (S->File == NULL) 
-	{
-		fprintf(stderr, "failed to create output file [%s] errno:%i\n", S->Path, errno);
-		exit(-1);
-	}
-
-	// assign to cache
-	s_StreamCache[Index] = S;
+	fProfile_Stop(10);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -227,32 +198,50 @@ void fTCPStream_Close(struct TCPStream_t* S)
 	if(!S) return;
 
 	//close(S->fd);
-	fclose(S->File);
+	//fclose(S->File);
+	fFile_Close(S->File);
 
 	memset(S, 0, sizeof(TCPStream_t));
 	free(S);
 }
-
 
 //---------------------------------------------------------------------------------------------
 // periodically flush to disk
 void fTCPStream_Flush(struct TCPStream_t* S)
 {
 	if (!S) return;
-	fflush(S->File);
+	//fflush(S->File);
+	fFile_Flush(S->File);
 }
 
 //---------------------------------------------------------------------------------------------
+// write tcp header only to disk
+void fTCPStream_OutputHeader(TCPStream_t* S, TCPOutputHeader_t* Header) 
+{
+	// ensure file is open
+	fTCPStream_Open(S);	
+
+	fProfile_Start(13, "TCP PktAdd OutputHeader");
+
+	//int wlen = write(S->fd, &Header, sizeof(Header));
+	//int wlen = fwrite(&Header, sizeof(Header), 1, S->File);
+	fFile_Write(S->File, Header, sizeof(TCPOutputHeader_t));
+
+	S->WritePos += sizeof(TCPOutputHeader_t);
+
+	S->LastTSC = rdtsc();
+
+	fProfile_Stop(13);
+}
+
+//---------------------------------------------------------------------------------------------
+
 void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u32 Flag, u32 SeqNo, u32 AckNo, u32 WindowSize)
 {
-	// is sthe fil open ? 
-	//if (S->fd <= 0)
-	if (S->File == NULL) 
-	{
-		// evict an old stream	
-		fTCPStream_Open(S);	
-		//fprintf(stderr, "[%s] open file\n", FormatTS(TS));
-	}
+	// ensure file is open 
+	fTCPStream_Open(S);	
+
+	fProfile_Start(12, "TCP PktAdd OutputPayload");
 	S->SeqNo += Length;
 
 	int rlen;
@@ -276,11 +265,29 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 		Header.CRC		+= Header.Flag;
 
 		//rlen = write(S->fd, &Header, sizeof(Header));
-		rlen = fwrite(&Header, sizeof(Header), 1, S->File);
-		S->WritePos += sizeof(Header);
+		//rlen = fwrite(&Header, sizeof(Header), 1, S->File);
+		fFile_Write(S->File, &Header, sizeof(TCPOutputHeader_t));
+
+		S->WritePos += sizeof(TCPOutputHeader_t);
 	}
+
+	/*
+	if (S->IsTrace)
+	{
+		for (int i=0; i < Length; i++)
+		{
+			if (i % 16 == 0) printf("\n");
+			printf("%02x ", Payload[i]);
+		}
+		printf("\n");
+	}
+	*/
+
+
 	//rlen = write(S->fd, Payload, Length);
-	rlen = fwrite(Payload, Length, 1, S->File);
+	//rlen = fwrite(Payload, Length, 1, S->File);
+	fFile_Write(S->File, Payload, Length);
+
 	S->WritePos += Length; 
 
 	S->LastTSC = rdtsc();
@@ -288,6 +295,8 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 	// total TCP bytes output
 	s_TotalByte += Length;
 	s_TotalPkt	+= 1;
+
+	fProfile_Stop(12);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -299,20 +308,16 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 	u32 SeqNo 		= swap32( TCP->SeqNo );
 	u32 AckNo 		= swap32( TCP->AckNo );
 
-	// is sthe fil open ? 
-	//if (S->fd <= 0)
-	if (S->File == NULL) 
-	{
-		// evict an old stream	
-		fTCPStream_Open(S);	
-		//fprintf(stderr, "[%s] open file\n", FormatTS(TS));
-	}
+	// last packet TS	
+	S->LastTS 		= TS; 
 
 	u32 Flag 		= StreamTCPFlag(TCP->Flags); 
 	if (TCP_FLAG_SYN(TCP->Flags))
 	{
 		if (g_Verbose) printf("[%s] [%s] got syn\n", FormatTS(TS), S->Path);
 		S->SeqNo = SeqNo + 1;
+
+		fProfile_Start(9, "TCP PktAdd release");
 
 		// release all reassembly buffer data . assumption is this is now a new tcp stream
 		for (int i=0; i < S->BufferListPos; i++)
@@ -328,6 +333,8 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			s_TCPBufferPacketTotal 	-= 1;
 		}
 		S->BufferListPos = 0;
+
+		fProfile_Stop(9);
 
 		// parse options
 		u32 OLen = (4*swap16(TCP->Flags) >> 12) - 20;
@@ -382,8 +389,8 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			Header.CRC		+= Header.AckNo;
 			Header.CRC		+= Header.Window;
 			Header.CRC		+= Header.Flag;
-			//int wlen = write(S->fd, &Header, sizeof(Header));
-			int wlen = fwrite(&Header, sizeof(Header), 1, S->File);
+
+			fTCPStream_OutputHeader(S, &Header);
 		}
 	}
 
@@ -409,9 +416,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			Header.CRC		+= Header.Window;
 			Header.CRC		+= Header.Flag;
 
-			//int rlen = write(S->fd, &Header, sizeof(Header));
-			int rlen = fwrite(&Header, sizeof(Header), 1, S->File);
-			S->WritePos += sizeof(Header);
+			fTCPStream_OutputHeader(S, &Header);
 		}
 	}
 	else
@@ -425,6 +430,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 				if (g_Verbose) printf("[%s] [%s] resend hit Seq:%08x : %i\n", FormatTS(TS), S->Path, SeqNo, S->BufferListPos);
 
 				// check for reassembly
+				fProfile_Start(11, "TCP PktAdd Reassembly");
 				while (true)
 				{
 					bool Hit = false;
@@ -464,11 +470,15 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 					}
 					if (!Hit) break;
 				}
+				fProfile_Stop(11);
 			}
 			// output stream data
 		}
 		else
 		{
+
+			fProfile_Start(7, "TCP PktAdd OOO");
+
 			// reassembly packet thats not aligned but close to the current seq no
 			s32 dRemain = (SeqNo + Length) - S->SeqNo;
 			if ((SeqNo < S->SeqNo) && (dRemain > 0) && (dRemain < 1500))
@@ -494,6 +504,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 			{
 				TCPBuffer_t* B = (TCPBuffer_t*)malloc( sizeof(TCPBuffer_t) );
 				assert(B != NULL);
+
 				s_TCPBufferMemoryTotal  += sizeof(TCPBuffer_t) + Length;
 				s_TCPBufferPacketTotal 	+= 1;
 				g_TotalMemory 			+= sizeof(TCPBuffer_t) + Length;
@@ -530,19 +541,84 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 				{
 					if (g_Verbose) printf("[%s] %s midstream start Len:%i\n", FormatTS(TS), S->Path, Length); 
 					S->SeqNo = swap32(TCP->SeqNo) + Length;
-				}	
+				}
 			}
+			fProfile_Stop(7);
 		}
 	}
 }
 
 //---------------------------------------------------------------------------------------------
 // dump tcp stream export stats
-void fTCPStream_Dump(void)
+void fTCPStream_Dump(u64 TS)
 {
-	printf("TCPStream: TotalPkts: %16lli\n", s_TotalPkt);
-	printf("TCPStream: TotalByte: %16lli\n", s_TotalByte);
+	static u64 LastStreamCnt = 0;
 
-	fprintf(stderr, "TCPStream: TotalPkts: %16lli\n", s_TotalPkt);
-	fprintf(stderr, "TCPStream: TotalByte: %16lli\n", s_TotalByte);
+	fprintf(stderr, "TCPStream:\n");
+	fprintf(stderr, "  TotalPkts     : %16lli\n", s_TotalPkt);
+	fprintf(stderr, "  TotalByte     : %16lli\n", s_TotalByte);
+
+	fprintf(stderr, "  OOO Packets   : %16lli\n", s_TCPBufferPacketTotal);
+
+	s64 NewStreamCnt = s_StreamCnt - LastStreamCnt;
+	fprintf(stderr, "  StreamCnt     : %16lli\n", s_StreamCnt);
+	fprintf(stderr, "  StreamNew     : %16lli\n", NewStreamCnt);
+
+	LastStreamCnt = s_StreamCnt;
+
+	u32 StreamCnt 		= 0;
+	u32 StreamInactive 	= 0;
+	u32 StreamClose 	= 0;
+	u64 TSC				= rdtsc();
+
+	u32 Histo[1024];
+	memset(Histo, 0, sizeof(Histo) );
+
+	// garbage collect old streams
+	for (int i=0; i < s_StreamCnt; i++)
+	{
+		TCPStream_t* S = s_Stream[i];
+		assert(S != NULL);
+
+		StreamCnt++;
+
+		// stream is inactive
+		if (!S->File)
+		{
+			StreamInactive++;
+			continue;
+		}
+
+		u32 Index = S->WritePos / (16*1024);
+		if (Index > 1023) Index = 1023;
+		Histo[Index]++;
+
+		// candidate for closing
+		// no activity in the last 5 min 
+		s64 dTS = TS - S->LastTS; 
+		if (dTS > 60e9 * 5)
+		{
+			fProfile_Start(14, "TCP IO Close");
+			fFile_Close(S->File);
+			fProfile_Stop(14);
+
+			S->File = NULL;
+
+			// release 
+
+
+			StreamClose++;
+		}
+	}
+
+	for (int i=0; i < 1024; i++)
+	{
+		if (Histo[i] == 0) continue;
+		printf("%8i : %8i\n", i*16*1024, Histo[i]);
+	}
+
+	fprintf(stderr, "  StreamFound   : %16i\n", StreamCnt);
+	fprintf(stderr, "  StreamInactive: %16i (%.3f)\n", StreamInactive, StreamInactive / (float)StreamCnt);
+	fprintf(stderr, "  StreamActive  : %16i\n", StreamCnt - StreamInactive - StreamClose);
+	fprintf(stderr, "  StreamClose   : %16i\n", StreamClose); 
 }
