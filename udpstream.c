@@ -24,6 +24,7 @@
 #include <errno.h>
 
 #include "fTypes.h"
+#include "fFile.h"
 #include "udpstream.h"
 
 //---------------------------------------------------------------------------------------------
@@ -32,17 +33,17 @@
 
 typedef struct
 {
-	u64		TS;					// timestamp of last byte	
-	u16		Length;				// number of bytes in this packet
-	u16		StreamID;			// unique id per flow
+	u64		TS;							// timestamp of last byte	
+	u16		Length;						// number of bytes in this packet
+	u16		StreamID;					// unique id per flow
 
 } OutputHeader_t;
 
 typedef struct UDPStream_t
 {
-	FILE*	F;					// output file handle
-	char	FileName[256];		// file handle name
-	u32		FlowID;				// master flowid for this stream
+	struct fFile_t*	F;					// output file handle
+	char			FileName[1024];		// file handle name
+	u32				FlowID;				// master flowid for this stream
 
 } UDPStream_t;
 
@@ -53,7 +54,7 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 	UDPStream_t* Stream = malloc(sizeof(UDPStream_t));
 	memset(Stream, 0, sizeof(UDPStream_t));
 
-	Stream->F = fopen(FileName, "w");
+	Stream->F = fFile_Open(FileName, "w");
 	if (!Stream->F)
 	{
 		fprintf(stderr, "failed to create file [%s]\n", Stream->FileName);
@@ -74,7 +75,7 @@ void fUDPStream_Add(UDPStream_t* Stream, u64 TS, PCAPPacket_t* Pkt)
 	Header.TS 		= TS;
 	Header.Length 	= Pkt->LengthCapture;
 	Header.StreamID	= Stream->FlowID;
-	fwrite(&Header, sizeof(Header), 1, Stream->F);
+	fFile_Write(Stream->F, &Header, sizeof(Header) );
 
-	fwrite(Pkt+1, Pkt->LengthCapture, 1, Stream->F);
+	fFile_Write(Stream->F, Pkt+1, Pkt->LengthCapture);
 }
