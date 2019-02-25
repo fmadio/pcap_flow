@@ -27,10 +27,9 @@
 #include "fFile.h"
 
 //---------------------------------------------------------------------------------------------
-
 typedef struct fFile_t
 {
-	u8		Path[128];							// path to file
+	u8		Path[1024];							// path to file
 
 	FILE*	File;								// usual file handle if its created
 
