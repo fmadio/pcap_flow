@@ -61,8 +61,7 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 		return 0;
 	}
 	Stream->FlowID = FlowID;
-
-	printf("[%s] FlowID:%i UDP Stream: [%s]\n", FormatTS(TS), FlowID, FileName);
+	//printf("[%s] FlowID:%i UDP Stream: [%s]\n", FormatTS(TS), FlowID, FileName);
 
 	return Stream;
 }
