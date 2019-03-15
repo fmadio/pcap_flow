@@ -135,6 +135,7 @@ static u32					s_ExtractTCPPortMax		= 0;
 static struct TCPStream_t** s_ExtractTCP			= NULL; 	// list of tcp stream extraction objects 
 
 static u32					s_DisableTCPPortCnt 	= 0;		// extract all tcp flows with the specified port number
+static u32					s_DisableTCPPortCntMax 	= 32;		// max list of port ranges 
 static u32					s_DisableTCPPortMin[32];
 static u32					s_DisableTCPPortMax[32];
 
@@ -142,6 +143,11 @@ static bool					s_ExtractUDPPortEnable 	= false;	// extract all UDP flows within
 static u32					s_ExtractUDPPortMin		= 0;
 static u32					s_ExtractUDPPortMax		= 0;
 static struct UDPStream_t**	s_ExtractUDP			= NULL;
+
+static u32					s_DisableUDPPortCnt 	= 0;		// extract all tcp flows with the specified port number
+static u32					s_DisableUDPPortCntMax 	= 32;		// max list of port ranges 
+static u32					s_DisableUDPPortMin[32];
+static u32					s_DisableUDPPortMax[32];
 
 static bool					s_ExtractIPEnable		= false;	// extract an IP range into a seperate pcap file
 static u32					s_ExtractIPMask			= 0;		// /32 mask
@@ -817,6 +823,7 @@ int main(int argc, char* argv[])
 				s_DisableTCPPortMin[s_DisableTCPPortCnt] = PortMin; 
 				s_DisableTCPPortMax[s_DisableTCPPortCnt] = PortMax; 
 				s_DisableTCPPortCnt++;
+				assert(s_DisableTCPPortCnt < s_DisableTCPPortCntMax);
 
 				i += 2;	
 
@@ -843,6 +850,21 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "    extract all udp flows\n");
 			}
+			// disable port range 
+			else if (strcmp(argv[i], "--disable-udp-port") == 0)
+			{
+				u32 PortMin 			= atoi(argv[i+1]);
+				u32 PortMax 			= atoi(argv[i+2]);
+				s_DisableUDPPortMin[s_DisableUDPPortCnt] = PortMin; 
+				s_DisableUDPPortMax[s_DisableUDPPortCnt] = PortMax; 
+				s_DisableUDPPortCnt++;
+				assert(s_DisableUDPPortCnt < s_DisableUDPPortCntMax);
+
+				i += 2;	
+
+				fprintf(stderr, "    disable UDP extraction on ports [%i] %i-%i\n", s_DisableUDPPortCnt-1, PortMin, PortMax);
+			}
+
 			// input is from stdin 
 			else if (strcmp(argv[i], "--stdin") == 0)
 			{
@@ -1246,6 +1268,19 @@ int main(int argc, char* argv[])
 				bool Output = false; 
 				Output |= (UDP->PortSrc >= s_ExtractUDPPortMin) && (UDP->PortSrc <= s_ExtractUDPPortMax);
 				Output |= (UDP->PortDst >= s_ExtractUDPPortMin) && (UDP->PortDst <= s_ExtractUDPPortMax);
+
+				// disable port range
+				for (int d=0; d < s_DisableUDPPortCnt; d++)
+				{
+					if ((UDP->PortSrc >= s_DisableUDPPortMin[d]) && (UDP->PortSrc <= s_DisableUDPPortMax[d]))
+					{
+						Output = false;	
+					}
+					if ((UDP->PortDst >= s_DisableUDPPortMin[d]) && (UDP->PortDst <= s_DisableUDPPortMax[d]))
+					{
+						Output = false;	
+					}
+				}
 
 				if (Output)
 				{
