@@ -79,7 +79,7 @@ void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length)
 	{
 		if (F->BufferPos + Length > F->BufferMax)
 		{
-			F->File = fopen(F->Path, "w+");
+			F->File = fopen(F->Path, "a");
 			assert(F->File != NULL);
 
 			fwrite(F->Buffer, 1, F->BufferPos, F->File);
