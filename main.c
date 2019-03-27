@@ -1485,9 +1485,6 @@ int main(int argc, char* argv[])
 
 	if (OutPCAP) fclose(OutPCAP);
 	if (s_EnableFlowDisplay) PrintHumanFlows();	
-
-	// dump tcp stats
-	fTCPStream_Dump(PCAPFile->TS);
 }
 
 /* vim: set ts=4 sts=4 */

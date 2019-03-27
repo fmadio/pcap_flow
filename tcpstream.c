@@ -178,7 +178,7 @@ static void fTCPStream_Open(TCPStream_t* S)
 		fProfile_Start(15, "TCP IO Open");
 
 		//S->File = fopen64(S->Path, "w+"); 
-		S->File = fFile_Open(S->Path, "w+"); 
+		S->File = fFile_Open(S->Path, NULL); 
 		fProfile_Stop(15);
 
 		if (S->File == NULL) 
@@ -187,7 +187,6 @@ static void fTCPStream_Open(TCPStream_t* S)
 			exit(-1);
 		}
 	}
-
 	fProfile_Stop(10);
 }
 
@@ -200,6 +199,7 @@ void fTCPStream_Close(struct TCPStream_t* S)
 	//close(S->fd);
 	//fclose(S->File);
 	fFile_Close(S->File);
+	S->File = NULL;
 
 	memset(S, 0, sizeof(TCPStream_t));
 	free(S);
@@ -605,8 +605,6 @@ void fTCPStream_Dump(u64 TS)
 			S->File = NULL;
 
 			// release 
-
-
 			StreamClose++;
 		}
 	}

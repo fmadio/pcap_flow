@@ -74,6 +74,9 @@ struct fFile_t* fFile_Open(u8* Path, u8* Mode)
 
 void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length)
 {
+	// should never write with a null file handle
+	assert(F != NULL);
+
 	// need to create a file 
 	if (F->IsBuffer)
 	{
@@ -83,8 +86,10 @@ void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length)
 			assert(F->File != NULL);
 
 			fwrite(F->Buffer, 1, F->BufferPos, F->File);
-			F->IsBuffer = false;
 			F->TotalByte	+= F->BufferPos;
+
+			F->IsBuffer 	= false;
+			F->BufferPos	= 0;
 
 			s_TotalFileActive++;
 		}
@@ -98,6 +103,8 @@ void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length)
 	}
 	else
 	{
+		assert(F->File != NULL);
+
 		fwrite(Buffer, 1, Length, F->File);
 		F->TotalByte	+= Length; 
 	}
@@ -107,13 +114,30 @@ void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length)
 
 void fFile_Close(struct fFile_t* F)
 {
+	if (!F) return;
+
+	// flush buffer contents if not written to disk
+	if (F->IsBuffer && (F->BufferPos > 0))
+	{
+		F->File = fopen(F->Path, "a");
+		assert(F->File != NULL);
+
+		fwrite(F->Buffer, 1, F->BufferPos, F->File);
+		F->BufferPos = 0;
+	}
+
+	// close
 	if (F->File)
 	{
 		fclose(F->File);
 		s_TotalFileActive--;
 	}
 
-	free(F->Buffer);
+	if (F->Buffer)
+	{
+		free(F->Buffer);
+		F->Buffer = NULL;
+	}
 	memset(F, 0, sizeof(fFile_t));
 	free(F);
 
