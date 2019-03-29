@@ -27,6 +27,10 @@
 #include "fFile.h"
 
 //---------------------------------------------------------------------------------------------
+
+
+//---------------------------------------------------------------------------------------------
+
 typedef struct fFile_t
 {
 	u8		Path[1024];							// path to file
@@ -46,6 +50,8 @@ typedef struct fFile_t
 static u64		s_TotalFile			= 0;		// total number of files allocated
 static u64		s_TotalFileActive	= 0;		// total number of files active 
 static u64		s_TotalFileClose	= 0;		// number of files closed 
+
+static u64 		s_FileSizeMin		= 0;		// minimum file size
 
 //---------------------------------------------------------------------------------------------
 
@@ -131,8 +137,8 @@ void fFile_Close(struct fFile_t* F)
 	if (F->IsBuffer && (F->BufferPos > 0))
 	{
 		// if theres real substational data the flush it
-		//if (F->TotalByte > 128)
-		if (F->TotalPayload > 0)
+		//if (F->TotalByte > 1024)
+		if (F->TotalPayload > s_FileSizeMin)
 		{
 			F->File = fopen(F->Path, "a");
 			assert(F->File != NULL);
@@ -168,6 +174,13 @@ void fFile_Flush(struct fFile_t* F)
 	{
 		fflush(F->File);
 	}
+}
+
+//---------------------------------------------------------------------------------------------
+
+void fFile_SizeMin(u32 SizeMin)
+{
+	s_FileSizeMin = SizeMin;
 }
 
 //---------------------------------------------------------------------------------------------

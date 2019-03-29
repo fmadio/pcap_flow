@@ -636,6 +636,7 @@ static void print_usage(void)
 	fprintf(stderr, "  --flow-packet-min <number>               | minimum packet count to display flow info\n"); 
 	fprintf(stderr, "  --disable-display                        | do not display flow information to stdout\n");
 	fprintf(stderr, "  --cpu <number>                           | pin thread to a specific CPU\n"); 
+	fprintf(stderr, "  --flow-size-min <bytes>                  | minium file size to flow creation\n"); 
 	fprintf(stderr, "\n");
 }
 
@@ -915,6 +916,16 @@ int main(int argc, char* argv[])
 				CPU_ZERO(&MainCPUS);
 				CPU_SET(CPU, &MainCPUS);
 				pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &MainCPUS);
+			}
+			// minimum flow file size creation 
+			else if (strcmp(argv[i], "--flow-size-min") == 0)
+			{
+				u32 FlowFileSizeMin	= atoi(argv[i+1]);
+				i++;
+
+				fFile_SizeMin(FlowFileSizeMin);
+
+				fprintf(stderr, "    minimum flow file size %i B\n", FlowFileSizeMin);
 			}
 			else if (strcmp(argv[i], "--verbose") == 0)
 			{
