@@ -225,7 +225,7 @@ void fTCPStream_OutputHeader(TCPStream_t* S, TCPOutputHeader_t* Header)
 
 	//int wlen = write(S->fd, &Header, sizeof(Header));
 	//int wlen = fwrite(&Header, sizeof(Header), 1, S->File);
-	fFile_Write(S->File, Header, sizeof(TCPOutputHeader_t));
+	fFile_Write(S->File, Header, sizeof(TCPOutputHeader_t), false);
 
 	S->WritePos += sizeof(TCPOutputHeader_t);
 
@@ -266,7 +266,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 
 		//rlen = write(S->fd, &Header, sizeof(Header));
 		//rlen = fwrite(&Header, sizeof(Header), 1, S->File);
-		fFile_Write(S->File, &Header, sizeof(TCPOutputHeader_t));
+		fFile_Write(S->File, &Header, sizeof(TCPOutputHeader_t), false);
 
 		S->WritePos += sizeof(TCPOutputHeader_t);
 	}
@@ -286,7 +286,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 
 	//rlen = write(S->fd, Payload, Length);
 	//rlen = fwrite(Payload, Length, 1, S->File);
-	fFile_Write(S->File, Payload, Length);
+	fFile_Write(S->File, Payload, Length, true);
 
 	S->WritePos += Length; 
 

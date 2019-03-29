@@ -74,7 +74,7 @@ void fUDPStream_Add(UDPStream_t* Stream, u64 TS, PCAPPacket_t* Pkt)
 	Header.TS 		= TS;
 	Header.Length 	= Pkt->LengthCapture;
 	Header.StreamID	= Stream->FlowID;
-	fFile_Write(Stream->F, &Header, sizeof(Header) );
+	fFile_Write(Stream->F, &Header, sizeof(Header), false );
 
-	fFile_Write(Stream->F, Pkt+1, Pkt->LengthCapture);
+	fFile_Write(Stream->F, Pkt+1, Pkt->LengthCapture, true);
 }
