@@ -24,6 +24,7 @@
 
 #include "fTypes.h"
 #include "fProfile.h"
+#include "fFile.h"
 #include "tcpstream.h"
 #include "udpstream.h"
 
