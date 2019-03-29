@@ -64,6 +64,13 @@ struct fFile_t* fFile_Open(u8* Path, u8* Mode)
 
 	F->TotalByte	= 0;
 
+	// if file existed before get total length
+	struct stat fstat;	
+	if (stat(F->Path, &fstat) >= 0) 
+	{
+		F->TotalByte = fstat.st_size;
+	}
+
 	// new file allocated 
 	s_TotalFile++;
 
@@ -119,11 +126,15 @@ void fFile_Close(struct fFile_t* F)
 	// flush buffer contents if not written to disk
 	if (F->IsBuffer && (F->BufferPos > 0))
 	{
-		F->File = fopen(F->Path, "a");
-		assert(F->File != NULL);
+		// if theres real substational data the flush it
+		if (F->TotalByte > 4096)
+		{
+			F->File = fopen(F->Path, "a");
+			assert(F->File != NULL);
 
-		fwrite(F->Buffer, 1, F->BufferPos, F->File);
-		F->BufferPos = 0;
+			fwrite(F->Buffer, 1, F->BufferPos, F->File);
+			F->BufferPos = 0;
+		}
 	}
 
 	// close
