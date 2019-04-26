@@ -201,6 +201,8 @@ void fTCPStream_Close(struct TCPStream_t* S)
 	fFile_Close(S->File);
 	S->File = NULL;
 
+	printf("[%s] OOO PacketList: %i/%i\n", S->Path, S->BufferListPos, S->BufferListMax);
+
 	memset(S, 0, sizeof(TCPStream_t));
 	free(S);
 }
@@ -225,7 +227,7 @@ void fTCPStream_OutputHeader(TCPStream_t* S, TCPOutputHeader_t* Header)
 
 	//int wlen = write(S->fd, &Header, sizeof(Header));
 	//int wlen = fwrite(&Header, sizeof(Header), 1, S->File);
-	fFile_Write(S->File, Header, sizeof(TCPOutputHeader_t));
+	fFile_Write(S->File, Header, sizeof(TCPOutputHeader_t), false);
 
 	S->WritePos += sizeof(TCPOutputHeader_t);
 
@@ -266,7 +268,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 
 		//rlen = write(S->fd, &Header, sizeof(Header));
 		//rlen = fwrite(&Header, sizeof(Header), 1, S->File);
-		fFile_Write(S->File, &Header, sizeof(TCPOutputHeader_t));
+		fFile_Write(S->File, &Header, sizeof(TCPOutputHeader_t), false);
 
 		S->WritePos += sizeof(TCPOutputHeader_t);
 	}
@@ -286,7 +288,7 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 
 	//rlen = write(S->fd, Payload, Length);
 	//rlen = fwrite(Payload, Length, 1, S->File);
-	fFile_Write(S->File, Payload, Length);
+	fFile_Write(S->File, Payload, Length, true);
 
 	S->WritePos += Length; 
 
@@ -301,6 +303,65 @@ void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u
 
 //---------------------------------------------------------------------------------------------
 
+static void fTCPStream_Reassembly(TCPStream_t* S, u64 TS, u32 Flag)
+{
+	fProfile_Start(11, "TCP PktAdd Reassembly");
+	while (true)
+	{
+		bool Hit = false;
+		for (int i=0; i < S->BufferListPos; i++)
+		{
+			TCPBuffer_t* Buffer = S->BufferList[i];
+
+			s32 dSeqStart = Buffer->SeqNo - S->SeqNo;
+			s32 dSeqEnd   = Buffer->SeqNo - S->SeqNo + Buffer->Length;
+
+			// perfectly aligned start packet
+			if (dSeqStart == 0)
+			{
+				if (g_Verbose) printf("[%s] [%s] reassembly hit Seq:%i:%i : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, S->SeqNo + Buffer->Length, S->BufferListPos);
+				fTCPStream_OutputPayload(S, TS, Buffer->Length, Buffer->Payload, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
+				Hit = true;
+			}
+			// redundant packet fully before the current packet 
+			else if ((dSeqStart < 0) && (dSeqEnd < 0))
+			{
+				if (g_Verbose) printf("[%s] [%s] redundant packet hit Seq:%i BufferSeq:%i : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, Buffer->SeqNo, S->BufferListPos);
+				Hit = true;
+			}
+			// partialy straddled packet. started before the current Seq number but adds to the seq no
+			else if ((dSeqStart < 0) && (dSeqEnd > 0))
+			{
+				if (g_Verbose) printf("[%s] [%s] partial packet hit Seq:%i BufferSeq:%i : %i %i : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, Buffer->SeqNo, dSeqStart, dSeqEnd, S->BufferListPos);
+				fTCPStream_OutputPayload(S, TS, dSeqEnd, Buffer->Payload  - dSeqStart, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
+
+				Hit = true;
+			}
+
+			// free and remove buffer 
+			if (Hit)
+			{
+				free(Buffer->Payload);
+				Buffer->Payload = NULL;	
+				free(Buffer);
+
+				s_TCPBufferMemoryTotal -= sizeof(TCPBuffer_t);
+
+				for (int j=i; j < S->BufferListPos; j++)
+				{
+					S->BufferList[j] = S->BufferList[j+1];
+				}
+				S->BufferListPos--;
+				break;
+			}
+		}
+		if (!Hit) break;
+	}
+	fProfile_Stop(11);
+}
+
+//---------------------------------------------------------------------------------------------
+
 void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, u8* Payload)
 {
 	//printf("tcp len: %i %08x %08x\n", Length, swap32(TCP->SeqNo), swap32(TCP->AckNo));
@@ -310,6 +371,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 
 	// last packet TS	
 	S->LastTS 		= TS; 
+
 
 	u32 Flag 		= StreamTCPFlag(TCP->Flags); 
 	if (TCP_FLAG_SYN(TCP->Flags))
@@ -430,58 +492,16 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 				if (g_Verbose) printf("[%s] [%s] resend hit Seq:%08x : %i\n", FormatTS(TS), S->Path, SeqNo, S->BufferListPos);
 
 				// check for reassembly
-				fProfile_Start(11, "TCP PktAdd Reassembly");
-				while (true)
-				{
-					bool Hit = false;
-					for (int i=0; i < S->BufferListPos; i++)
-					{
-						TCPBuffer_t* Buffer = S->BufferList[i];
-						if (Buffer->SeqNo == S->SeqNo)
-						{
-							if (g_Verbose) printf("[%s] [%s] reassembly hit Seq:%08x:%08x : %i %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, S->SeqNo + Buffer->Length, S->BufferListPos, Length);
-							fTCPStream_OutputPayload(S, TS, Buffer->Length, Buffer->Payload, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
-							Hit = true;
-						}
-						// redundant packet
-						else if (Buffer->SeqNo < S->SeqNo)
-						{
-							if (g_Verbose) printf("[%s] [%s] redundant packet hit Seq:%08x BufferSeq:%08x : %i\n", FormatTS(Buffer->TS), S->Path, S->SeqNo, Buffer->SeqNo, S->BufferListPos);
-							Hit = true;
-						}
-
-						// free and remove buffer 
-
-						if (Hit)
-						{
-							free(Buffer->Payload);
-							Buffer->Payload = NULL;	
-							free(Buffer);
-
-							s_TCPBufferMemoryTotal -= sizeof(TCPBuffer_t);
-
-							for (int j=i; j < S->BufferListPos; j++)
-							{
-								S->BufferList[j] = S->BufferList[j+1];
-							}
-							S->BufferListPos--;
-							break;
-						}
-					}
-					if (!Hit) break;
-				}
-				fProfile_Stop(11);
+				fTCPStream_Reassembly(S, TS, Flag);
 			}
-			// output stream data
 		}
 		else
 		{
-
 			fProfile_Start(7, "TCP PktAdd OOO");
 
 			// reassembly packet thats not aligned but close to the current seq no
 			s32 dRemain = (SeqNo + Length) - S->SeqNo;
-			if ((SeqNo < S->SeqNo) && (dRemain > 0) && (dRemain < 1500))
+			if ((SeqNo < S->SeqNo) && (dRemain > 0) && (dRemain < 8*1024))
 			{
 				if (g_Verbose) 
 				{
@@ -498,7 +518,11 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 				assert(PayloadOffset > 0);
 
 				fTCPStream_OutputPayload(S, TS, dRemain, Payload + PayloadOffset, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
+
+				// check re-assembly buffer 
+				fTCPStream_Reassembly(S, TS, Flag);
 			}
+
 			// stop processing if too many gaps 
 			else if (S->BufferListPos < S->BufferListMax)
 			{

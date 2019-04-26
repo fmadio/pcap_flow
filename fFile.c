@@ -27,6 +27,10 @@
 #include "fFile.h"
 
 //---------------------------------------------------------------------------------------------
+
+
+//---------------------------------------------------------------------------------------------
+
 typedef struct fFile_t
 {
 	u8		Path[1024];							// path to file
@@ -39,12 +43,15 @@ typedef struct fFile_t
 	u64		BufferMax;							// max buffer size
 
 	u64		TotalByte;
+	u64		TotalPayload;						// total payload bytes
 
 } fFile_t;
 
 static u64		s_TotalFile			= 0;		// total number of files allocated
 static u64		s_TotalFileActive	= 0;		// total number of files active 
 static u64		s_TotalFileClose	= 0;		// number of files closed 
+
+static u64 		s_FileSizeMin		= 0;		// minimum file size
 
 //---------------------------------------------------------------------------------------------
 
@@ -64,6 +71,13 @@ struct fFile_t* fFile_Open(u8* Path, u8* Mode)
 
 	F->TotalByte	= 0;
 
+	// if file existed before get total length
+	struct stat fstat;	
+	if (stat(F->Path, &fstat) >= 0) 
+	{
+		F->TotalByte = fstat.st_size;
+	}
+
 	// new file allocated 
 	s_TotalFile++;
 
@@ -72,7 +86,7 @@ struct fFile_t* fFile_Open(u8* Path, u8* Mode)
 
 //---------------------------------------------------------------------------------------------
 
-void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length)
+void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length, bool IsPayload)
 {
 	// should never write with a null file handle
 	assert(F != NULL);
@@ -108,6 +122,9 @@ void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length)
 		fwrite(Buffer, 1, Length, F->File);
 		F->TotalByte	+= Length; 
 	}
+
+	// if this is payload
+	if (IsPayload) F->TotalPayload += Length;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -119,11 +136,16 @@ void fFile_Close(struct fFile_t* F)
 	// flush buffer contents if not written to disk
 	if (F->IsBuffer && (F->BufferPos > 0))
 	{
-		F->File = fopen(F->Path, "a");
-		assert(F->File != NULL);
+		// if theres real substational data the flush it
+		//if (F->TotalByte > 1024)
+		if (F->TotalPayload > s_FileSizeMin)
+		{
+			F->File = fopen(F->Path, "a");
+			assert(F->File != NULL);
 
-		fwrite(F->Buffer, 1, F->BufferPos, F->File);
-		F->BufferPos = 0;
+			fwrite(F->Buffer, 1, F->BufferPos, F->File);
+			F->BufferPos = 0;
+		}
 	}
 
 	// close
@@ -152,6 +174,13 @@ void fFile_Flush(struct fFile_t* F)
 	{
 		fflush(F->File);
 	}
+}
+
+//---------------------------------------------------------------------------------------------
+
+void fFile_SizeMin(u32 SizeMin)
+{
+	s_FileSizeMin = SizeMin;
 }
 
 //---------------------------------------------------------------------------------------------
