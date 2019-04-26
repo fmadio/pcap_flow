@@ -1073,61 +1073,67 @@ int main(int argc, char* argv[])
 			{
 			case IPv4_PROTO_TCP:
 			{
-				TCPHeader_t* TCP = (TCPHeader_t*)( ((u8*)IP4) + IPOffset);
-
-				memset(&Flow, 0, sizeof(Flow));
-
-				Flow.Type = FLOW_TYPE_TCP;
-
-				TCPHash_t* TCPHash = (TCPHash_t*)Flow.Data;
-				memset(TCPHash, 0, 64);
-
-				memcpy(TCPHash->MACDst, Ether->Dst, 6);
-				memcpy(TCPHash->MACSrc, Ether->Src, 6);
-
-				TCPHash->IPSrc = IP4->Src;
-				TCPHash->IPDst = IP4->Dst;
-
-				TCPHash->PortSrc = swap16(TCP->PortSrc); 
-				TCPHash->PortDst = swap16(TCP->PortDst); 
-
-				HashLength = 64; 
-
-				// mark tcp SYN/SYNACK sequence numbers for duplex matching
-				if (TCP_FLAG_SYN(TCP->Flags) & (!TCP_FLAG_ACK(TCP->Flags)))
+				if (s_ExtractTCPPortEnable)
 				{
-					// syn seq no 
-					Flow.TCPSeqNo = swap32(TCP->SeqNo);
-				}
-				if (TCP_FLAG_SYN(TCP->Flags) & (TCP_FLAG_ACK(TCP->Flags)))
-				{
-					// syn.ack ack no (syn.ack bumps it by 1)
-					Flow.TCPSeqNo = swap32(TCP->AckNo) -1;
+					TCPHeader_t* TCP = (TCPHeader_t*)( ((u8*)IP4) + IPOffset);
+
+					memset(&Flow, 0, sizeof(Flow));
+
+					Flow.Type = FLOW_TYPE_TCP;
+
+					TCPHash_t* TCPHash = (TCPHash_t*)Flow.Data;
+					memset(TCPHash, 0, 64);
+
+					memcpy(TCPHash->MACDst, Ether->Dst, 6);
+					memcpy(TCPHash->MACSrc, Ether->Src, 6);
+
+					TCPHash->IPSrc = IP4->Src;
+					TCPHash->IPDst = IP4->Dst;
+
+					TCPHash->PortSrc = swap16(TCP->PortSrc); 
+					TCPHash->PortDst = swap16(TCP->PortDst); 
+
+					HashLength = 64; 
+
+					// mark tcp SYN/SYNACK sequence numbers for duplex matching
+					if (TCP_FLAG_SYN(TCP->Flags) & (!TCP_FLAG_ACK(TCP->Flags)))
+					{
+						// syn seq no 
+						Flow.TCPSeqNo = swap32(TCP->SeqNo);
+					}
+					if (TCP_FLAG_SYN(TCP->Flags) & (TCP_FLAG_ACK(TCP->Flags)))
+					{
+						// syn.ack ack no (syn.ack bumps it by 1)
+						Flow.TCPSeqNo = swap32(TCP->AckNo) -1;
+					}
 				}
 			}
 			break;
 
 			case IPv4_PROTO_UDP: 
 			{
-				UDPHeader_t* UDP = (UDPHeader_t*)( ((u8*)IP4) + IPOffset);
+				if (s_ExtractUDPPortEnable)
+				{
+					UDPHeader_t* UDP = (UDPHeader_t*)( ((u8*)IP4) + IPOffset);
 
-				memset(&Flow, 0, sizeof(Flow));
+					memset(&Flow, 0, sizeof(Flow));
 
-				Flow.Type = FLOW_TYPE_UDP;
+					Flow.Type = FLOW_TYPE_UDP;
 
-				UDPHash_t* UDPHash = (UDPHash_t*)Flow.Data;
-				memset(UDPHash, 0, 64);
+					UDPHash_t* UDPHash = (UDPHash_t*)Flow.Data;
+					memset(UDPHash, 0, 64);
 
-				memcpy(UDPHash->MACDst, Ether->Dst, 6);
-				memcpy(UDPHash->MACSrc, Ether->Src, 6);
+					memcpy(UDPHash->MACDst, Ether->Dst, 6);
+					memcpy(UDPHash->MACSrc, Ether->Src, 6);
 
-				UDPHash->IPSrc = IP4->Src;
-				UDPHash->IPDst = IP4->Dst;
+					UDPHash->IPSrc = IP4->Src;
+					UDPHash->IPDst = IP4->Dst;
 
-				UDPHash->PortSrc = swap16(UDP->PortSrc); 
-				UDPHash->PortDst = swap16(UDP->PortDst); 
+					UDPHash->PortSrc = swap16(UDP->PortSrc); 
+					UDPHash->PortDst = swap16(UDP->PortDst); 
 
-				HashLength = 64; 
+					HashLength = 64; 
+				}
 			}
 			break;
 
