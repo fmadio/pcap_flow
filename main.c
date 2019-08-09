@@ -928,6 +928,13 @@ int main(int argc, char* argv[])
 
 				fprintf(stderr, "    minimum flow file size %i B\n", FlowFileSizeMin);
 			}
+			// force flushing after each write 
+			else if (strcmp(argv[i], "--flow-flush") == 0)
+			{
+				fFile_ForceFlush();
+				fprintf(stderr, "    flow force flushing\n"); 
+			}
+
 			else if (strcmp(argv[i], "--verbose") == 0)
 			{
 				fprintf(stderr, "    enable verbose mode\n");
@@ -1438,8 +1445,8 @@ int main(int argc, char* argv[])
 			fprintf(stderr, "[%s %.3f%%] ", FormatTS(TSf), PCAPFile->ReadPos / (double)PCAPFile->Length); 
 			fprintf(stderr, "%5.f Min ", TotalTime / 60e9);
 			fprintf(stderr, "Flows:%i ", s_FlowListPos);
-			fprintf(stderr, "%.2fM Pkts %8.3fGbps : %.2fGB ",
-					TotalPkt / 1e6, 
+			fprintf(stderr, "%lli Pkts %8.3fGbps : %.2fGB ",
+					TotalPkt,
 					(8.0*Bps) / 1e9,
 					TotalByte / 1e9
 			);

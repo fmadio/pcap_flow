@@ -51,7 +51,8 @@ static u64		s_TotalFile			= 0;		// total number of files allocated
 static u64		s_TotalFileActive	= 0;		// total number of files active 
 static u64		s_TotalFileClose	= 0;		// number of files closed 
 
-static u64 		s_FileSizeMin		= 0;		// minimum file size
+static u64 		s_FileSizeMin		= 128;		// minimum file size
+static bool		s_ForceFlush		= false;	// force flushing after every write 
 
 //---------------------------------------------------------------------------------------------
 
@@ -64,7 +65,7 @@ struct fFile_t* fFile_Open(u8* Path, u8* Mode)
 
 	// initial output buffer 
 	F->IsBuffer		= true;
-	F->BufferMax	= 4096;
+	F->BufferMax	= s_FileSizeMin;
 	F->BufferPos	= 0;
 	F->Buffer		= malloc( F->BufferMax );		
 	memset(F->Buffer, 0, F->BufferMax );
@@ -120,6 +121,7 @@ void fFile_Write(struct fFile_t* F, void* Buffer, u32 Length, bool IsPayload)
 		assert(F->File != NULL);
 
 		fwrite(Buffer, 1, Length, F->File);
+		if (s_ForceFlush) fflush(F->File);
 		F->TotalByte	+= Length; 
 	}
 
@@ -137,7 +139,6 @@ void fFile_Close(struct fFile_t* F)
 	if (F->IsBuffer && (F->BufferPos > 0))
 	{
 		// if theres real substational data the flush it
-		//if (F->TotalByte > 1024)
 		if (F->TotalPayload > s_FileSizeMin)
 		{
 			F->File = fopen(F->Path, "a");
@@ -177,10 +178,17 @@ void fFile_Flush(struct fFile_t* F)
 }
 
 //---------------------------------------------------------------------------------------------
-
+// set the minimum file size before creating a file 
 void fFile_SizeMin(u32 SizeMin)
 {
 	s_FileSizeMin = SizeMin;
+}
+
+//---------------------------------------------------------------------------------------------
+// force flushing data after each write 
+void fFile_ForceFlush(void)
+{
+	s_ForceFlush = true;	
 }
 
 //---------------------------------------------------------------------------------------------
