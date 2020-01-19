@@ -241,14 +241,14 @@ static PCAPPacket_t* ReadPCAP(PCAPFile_t* PCAP)
 	ret = fread(Pkt, 1, sizeof(PCAPPacket_t), PCAP->F);
 	if (ret != sizeof(PCAPPacket_t))
 	{
-		fprintf(stderr, "header read failed. expect:%i got:%i errno:%i %s\n", sizeof(PCAPPacket_t), ret, errno, strerror(errno));
+		fprintf(stderr, "header read failed. expect:%li got:%i errno:%i %s\n", sizeof(PCAPPacket_t), ret, errno, strerror(errno));
 		fprintf(stderr, "errno: %i\n", ferror(PCAP->F));
 		return NULL;
 	}
 
 	if (PCAP->ReadPos + sizeof(PCAPPacket_t) + Pkt->LengthCapture > PCAP->Length)
 	{
-		fprintf(stderr, "read overflow %lli %i %i > %lli\n", 
+		fprintf(stderr, "read overflow %lli %li %i > %lli\n", 
 				PCAP->ReadPos,
 				sizeof(PCAPPacket_t),
 				Pkt->LengthCapture,
@@ -260,7 +260,7 @@ static PCAPPacket_t* ReadPCAP(PCAPFile_t* PCAP)
 	ret = fread(Pkt+1, 1, Pkt->LengthCapture, PCAP->F);
 	if (ret != Pkt->LengthCapture)
 	{
-		fprintf(stderr, "payload read failed. expect:%i got:%i errno:%i %s\n", sizeof(PCAPPacket_t), ret, errno, strerror(errno));
+		fprintf(stderr, "payload read failed. expect:%li got:%i errno:%i %s\n", sizeof(PCAPPacket_t), ret, errno, strerror(errno));
 		fprintf(stderr, "errno: %i\n", ferror(PCAP->F));
 		return NULL;
 	}
