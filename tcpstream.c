@@ -585,7 +585,7 @@ void fTCPStream_Dump(u64 TS)
 	fprintf(stderr, "  OOO Packets   : %16lli\n", s_TCPBufferPacketTotal);
 
 	s64 NewStreamCnt = s_StreamCnt - LastStreamCnt;
-	fprintf(stderr, "  StreamCnt     : %16lli\n", s_StreamCnt);
+	fprintf(stderr, "  StreamCnt     : %16i\n", s_StreamCnt);
 	fprintf(stderr, "  StreamNew     : %16lli\n", NewStreamCnt);
 
 	LastStreamCnt = s_StreamCnt;
