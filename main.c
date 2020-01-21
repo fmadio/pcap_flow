@@ -1313,12 +1313,10 @@ int main(int argc, char* argv[])
 					struct UDPStream_t* Stream = s_ExtractUDP[FlowID];
 					if (Stream == NULL)
 					{
-						char FileName[256];
-						sprintf(FileName, "%s_%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%i->%i",
+						char FileName[257];
+						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
 								UDPOutputFileName,
 
-								FormatTS(PCAPFile->TS),
-								
 								UDP->MACSrc[0],	
 								UDP->MACSrc[1],	
 								UDP->MACSrc[2],	
@@ -1351,7 +1349,7 @@ int main(int argc, char* argv[])
 					}
 					assert(Stream != NULL);
 
-					fUDPStream_Add(Stream, PCAPFile->TS, Pkt);
+					fUDPStream_Add(Stream, PCAPFile->TS, Pkt, UDPHeader);
 					OutputUDPByte += sizeof(PCAPPacket_t) + Pkt->LengthCapture;
 				}
 			}
@@ -1386,6 +1384,7 @@ int main(int argc, char* argv[])
 				u32 PortSrc = 0;
 				u32 PortDst = 0;
 				if (Flow.Type == FLOW_TYPE_UDP)
+								
 				{
 					UDPHeader_t* UDP = PCAPUDPHeader(Pkt); 
 
