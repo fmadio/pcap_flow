@@ -68,13 +68,24 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 
 //---------------------------------------------------------------------------------------------
 
-void fUDPStream_Add(UDPStream_t* Stream, u64 TS, PCAPPacket_t* Pkt)
+void fUDPStream_Add(UDPStream_t* Stream, u64 TS, PCAPPacket_t* Pkt, UDPHeader_t* UDPHeader)
 {
+	u32 Length = swap16(UDPHeader->Length);	
+	assert(Length < 16*1024);
+
+	// ensure its caped at the packet length
+	if (Length > Pkt->Length)
+	{
+		Length = Pkt->Length;
+		fprintf(stderr, "udp packet length truncated: Header %i Capture %i\n", Length, Pkt->Length);
+	}	
+
 	OutputHeader_t Header;
 	Header.TS 		= TS;
-	Header.Length 	= Pkt->LengthCapture;
+	Header.Length 	= sizeof(UDPHeader_t) + Length; 
 	Header.StreamID	= Stream->FlowID;
 	fFile_Write(Stream->F, &Header, sizeof(Header), false );
 
-	fFile_Write(Stream->F, Pkt+1, Pkt->LengthCapture, true);
+	// write the UDP header + payload 
+	fFile_Write(Stream->F, UDPHeader, sizeof(UDPHeader_t) + Length, true);
 }

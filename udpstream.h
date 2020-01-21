@@ -5,5 +5,5 @@ struct UDPStream_t;
 
 
 struct UDPStream_t* 	fUDPStream_Init(char* OutputName, u32 FlowID, u64 TS);
-void 					fUDPStream_Add(struct UDPStream_t* S, u64 TS, PCAPPacket_t* Pkt);
+void 					fUDPStream_Add(struct UDPStream_t* S, u64 TS, PCAPPacket_t* Pkt, UDPHeader_t* UDPHeader);
 #endif
