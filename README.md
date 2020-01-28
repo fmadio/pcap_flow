@@ -4,7 +4,7 @@
 
 displays flow information from pcap and can extract individual or all tcp streams
 
-###Options
+### Options
 
 Command line options
 
@@ -22,7 +22,7 @@ Command line options
 --tcpheader                                | include header in tcp output stream 
 ```
 
-###Examples
+### Examples
 
 
 **1) generate flow information from a compressed pcap file**
