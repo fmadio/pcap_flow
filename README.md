@@ -2,30 +2,38 @@
 
 ![Alt text](http://fmad.io/analytics/logo_flow_analyzer.png "fmadio flow analyzer logo")
 
-displays flow information from pcap and can extract individual or all tcp streams
+Displays flow information from pcap and can extract individual or all tcp streams
 
 ### Options
 
 Command line options
 
 ```
---output_tcp <filename>                    | write filtered TCP flows to the specified directory
---output_udp <filename>                    | write filtered UDP flows to the specified directory
---packet-max  <number>                     | only process the first <number> packets
---extract <number>                         | extract FlowID <number> into the output PCAP file
---extract-tcp <number>                     | extract FlowID <number> as a TCP stream to the output file name
---extract-tcp-port <start port> <end port> | extract all TCP flows with the specified port in src or dest 
---extract-ip 1.2.3.4/255.255.255.255       | extract all IP`s matching the sepcificed mask into the output PCAP
---extract-port <start port> <end port>     | extract all UDP/TCP packets matching the range into a seperate PCAP 
---stdin                                    | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
---disable-display                          | do not display flow information to stdout
---tcpheader                                | include header in tcp output stream 
+Options:
+  --output-tcp <filename>                  | write TCP output to the specified file name
+  --output-udp <filename>                  | write UDP output to the specified file name
+
+  --packet-max  <number>                   | only process the first <number> packets
+  --flow-max  <number>                     | sets max flow count to <number> packets
+  --flow-hash-bits  <number>               | sets number of bits to use for the flow hash index
+  --extract <number>                       | extract FlowID <number> into the output PCAP file
+  --extract-port <min port>  <max port>    | extract ports between min/max
+  --extract-ip <address/netmask>           | extract only a subnet
+  --extract-tcp <number>                   | extract FlowID <number> as a TCP stream to the output file name
+  --extract-tcp-port <min port> <max port> | extract all TCP flows with the specified port in src or dest
+  --extract-tcp-all                        | extract all TCP flows
+  --disable-tcp-port <min port> <max port> | do not extract TCP ports within this range
+  --stdin                                  | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
+  --flow-packet-min <number>               | minimum packet count to display flow info
+  --disable-display                        | do not display flow information to stdout
+  --cpu <number>                           | pin thread to a specific CPU
+  --flow-size-min <bytes>                  | minium file size to flow creation
 ```
 
 ### Examples
 
 
-**1) generate flow information from a compressed pcap file**
+1) generate flow information from a compressed pcap file
 
 ```
 zcat capture.pcap.gz | pcap_flows --stdin
@@ -34,21 +42,21 @@ zcat capture.pcap.gz | pcap_flows --stdin
 2) output a specific flow to a seperate pcap file 
 
 ```
-pcap_flows --extract 1234 raw_capture.pcap -o capture_flow_1234.pcap
+pcap_flows --extract 1234 raw_capture.pcap --output-tcp capture_flow_1234.pcap
 ```
 
 3) extract a tcp stream from a pcap
 
 ```
-pcap_flows --extract-tcp 1234 raw_capture.pcap -o capture_flow_as_tcp1234.pcap
+pcap_flows --extract-tcp 1234 raw_capture.pcap --output-tcp capture_flow_as_tcp1234.pcap
 ```
 
-3) extract all tcp streams from port 80 to port 80 
+4) extract all tcp streams from port 80 to port 80 
 
-Note: this can generate a very large number of files (one per stream) in the output directory. e.g. /tmp/tcp_stream_directory/extract_192.168.1.1-80->12345.pcap 
+Note: this can generate a very large number of files (one per stream) in the output directory. e.g. `/tmp/tcp_stream_directory/extract_192.168.1.1-80->12345.pcap`
 
 ```
-pcap_flows /mnt/capture/hitcon_small.pcap --extract-tcp-port 80 80 -o ./tmp/port80_
+pcap_flows /mnt/capture/hitcon_small.pcap --extract-tcp-port 80 80 --output-tcp ./tmp/port80_
 
 $ ls tmp/port80* | wc -l
 20217
@@ -71,7 +79,7 @@ $ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29-
 
 ### TCP Output format 
 
-The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled TCP segment contains a header. The header format is: 
+The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the `--tcpheader` flag each succesfully re-assembled TCP segment contains a header. The header format is: 
 
 
 ```
@@ -132,7 +140,7 @@ Extract only port 80 traffic from hitcon.pcap to a seperate file. This is the in
 1048574 **FlowID:   642642** | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
 
 ```
-$ pcap_flows  hitcon.pcap  --extract 642642 -o /mnt/capture/hitcon_http.pcap --disable-display 
+$ pcap_flows  hitcon.pcap  --extract 642642 --output-tcp /mnt/capture/hitcon_http.pcap --disable-display 
 
 writing PCAP to [/mnt/capture/hitcon_http.pcap]
 [/mnt/capture/hitcon_small.pcap] FileSize: 2GB
