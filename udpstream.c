@@ -29,6 +29,10 @@
 
 //---------------------------------------------------------------------------------------------
 
+extern bool			g_EnableUDPHeader;
+
+//---------------------------------------------------------------------------------------------
+
 // public header output for each stream
 
 typedef struct
@@ -80,11 +84,14 @@ void fUDPStream_Add(UDPStream_t* Stream, u64 TS, PCAPPacket_t* Pkt, UDPHeader_t*
 		fprintf(stderr, "udp packet length truncated: Header %i Capture %i\n", Length, Pkt->Length);
 	}	
 
-	OutputHeader_t Header;
-	Header.TS 		= TS;
-	Header.Length 	= sizeof(UDPHeader_t) + Length; 
-	Header.StreamID	= Stream->FlowID;
-	fFile_Write(Stream->F, &Header, sizeof(Header), false );
+	if (g_EnableUDPHeader)
+	{
+		OutputHeader_t Header;
+		Header.TS 		= TS;
+		Header.Length 	= sizeof(UDPHeader_t) + Length; 
+		Header.StreamID	= Stream->FlowID;
+		fFile_Write(Stream->F, &Header, sizeof(Header), false );
+	}
 
 	// write the UDP header + payload 
 	fFile_Write(Stream->F, UDPHeader, sizeof(UDPHeader_t) + Length, true);

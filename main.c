@@ -84,7 +84,10 @@ typedef struct
 	u16		PortSrc;
 	u16		PortDst;
 
-} TCPHash_t;
+	u16		DeviceID;			// packet broker device ID 
+	u16		DevicePort;			// packet broker device port 
+
+} __attribute__((packed)) TCPHash_t;
 
 typedef struct
 {
@@ -95,6 +98,9 @@ typedef struct
 
 	u16		PortSrc;
 	u16		PortDst;
+
+	u16		DeviceID;			// packet broker device ID 
+	u16		DevicePort;			// packet broker device port 
 
 } UDPHash_t;
 
@@ -160,12 +166,15 @@ static u32					s_ExtractPortMax		= 0;		// max port range
 
 static bool					s_EnableFlowDisplay 	= true;		// print full flow information
 bool						g_EnableTCPHeader 		= false;	// output packet header in tcp stream
+bool						g_EnableUDPHeader 		= false;	// output packet header in udp stream
 
 static bool					s_EnableFlowLog			= true;		// write flow log in realtime
 static char					s_FlowLogPath[128];					// where to store the flow log
 static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 
 static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
+
+bool						g_EnableMetamako		= false;	// enable metamako timestamp decoding 
 
 //---------------------------------------------------------------------------------------------
 
@@ -329,6 +338,28 @@ static UDPHeader_t* PCAPUDPHeader(PCAPPacket_t* Pkt)
 	UDPHeader_t* UDP = (UDPHeader_t*)( ((u8*)IP4) + IPOffset);
 
 	return UDP;
+}
+
+static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
+{
+	u8* Payload = (u8*)(Pkt+1);	
+
+	s32 Offset = Pkt->LengthCapture;
+	Offset -= sizeof(Metamako_t); 
+
+	// required if pcap has no FCS
+	Offset += 4; 
+
+	if (Offset < 0)
+	{
+		printf("pkt length %i %i\n", Pkt->Length, Pkt->LengthCapture);
+	}
+
+ 	assert(Offset > 0);	
+
+	Metamako_t* M = (Metamako_t*)(Payload + Offset); 
+
+	return M;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -638,6 +669,9 @@ static void print_usage(void)
 	fprintf(stderr, "  --disable-display                        | do not display flow information to stdout\n");
 	fprintf(stderr, "  --cpu <number>                           | pin thread to a specific CPU\n"); 
 	fprintf(stderr, "  --flow-size-min <bytes>                  | minium file size to flow creation\n"); 
+	fprintf(stderr, "  --metamako                               | decode metamako footer\n"); 
+	fprintf(stderr, "  --tcpheader                              | include TCP header in output\n"); 
+	fprintf(stderr, "  --udpheader                              | include UDP header in output\n"); 
 	fprintf(stderr, "\n");
 }
 
@@ -890,8 +924,15 @@ int main(int argc, char* argv[])
 			else if (strcmp(argv[i], "--tcpheader") == 0)
 			{
 				g_EnableTCPHeader =true;
-				fprintf(stderr, "    enabling output tcp header\n");
+				fprintf(stderr, "    enabling output TCP header\n");
 			}
+			// enable udp header output 
+			else if (strcmp(argv[i], "--udpheader") == 0)
+			{
+				g_EnableUDPHeader =true;
+				fprintf(stderr, "    enabling output UDP header\n");
+			}
+
 			// UDP output file
 			else if (strcmp(argv[i], "--output-udp") == 0)
 			{
@@ -934,11 +975,15 @@ int main(int argc, char* argv[])
 				fFile_ForceFlush();
 				fprintf(stderr, "    flow force flushing\n"); 
 			}
-
 			else if (strcmp(argv[i], "--verbose") == 0)
 			{
 				fprintf(stderr, "    enable verbose mode\n");
 				g_Verbose = true;
+			}
+			else if (strcmp(argv[i], "--metamako") == 0)
+			{
+				fprintf(stderr, "    enable metamako timestamping\n");
+				g_EnableMetamako = true;
 			}
 			else
 			{
@@ -1073,6 +1118,10 @@ int main(int argc, char* argv[])
 			break;
 		}
 
+		// invalid packet
+		if (Pkt->Length 		== 0) break;
+		if (Pkt->LengthCapture 	== 0) break;
+
 		fProfile_Stop(1);
 		fProfile_Start(2, "Decode");
 
@@ -1111,6 +1160,18 @@ int main(int argc, char* argv[])
 
 					TCPHash->PortSrc = swap16(TCP->PortSrc); 
 					TCPHash->PortDst = swap16(TCP->PortDst); 
+
+					TCPHash->DeviceID 	= 0; 
+					TCPHash->DevicePort = 0; 
+
+					if (g_EnableMetamako)
+					{
+						// metamako footer
+						Metamako_t* MFooter = PCAPMetamako(Pkt); 
+
+						TCPHash->DeviceID 	= swap16(MFooter->DeviceID);
+						TCPHash->DevicePort = MFooter->PortID;
+					}
 
 					HashLength = 64; 
 
@@ -1151,6 +1212,18 @@ int main(int argc, char* argv[])
 					UDPHash->PortSrc = swap16(UDP->PortSrc); 
 					UDPHash->PortDst = swap16(UDP->PortDst); 
 
+					UDPHash->DeviceID 	= 0; 
+					UDPHash->DevicePort = 0; 
+/*
+					if (g_EnableMetamako)
+					{
+						// metamako footer
+						Metamako_t* MFooter = PCAPMetamako(Pkt); 
+
+						UDPHash->DeviceID 	= swap16(MFooter->DeviceID);
+						UDPHash->DevicePort = MFooter->PortID;
+					}
+*/
 					HashLength = 64; 
 				}
 			}
@@ -1170,7 +1243,7 @@ int main(int argc, char* argv[])
 
 		fProfile_Stop(2);
 
-		// not valid TCP or UDP data
+		// if its valid TCP or UDP data
 		if (HashLength != 0)
 		{
 			fProfile_Start(3, "FlowAdd");
@@ -1230,7 +1303,7 @@ int main(int argc, char* argv[])
 					if (Stream == NULL)
 					{
 						char FileName[1024];
-						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
+						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i_%05i_%02i",
 								TCPOutputFileName,
 								
 								TCP->MACSrc[0],	
@@ -1258,7 +1331,10 @@ int main(int argc, char* argv[])
 								TCP->IPDst.IP[3],
 
 								TCP->PortSrc,
-								TCP->PortDst
+								TCP->PortDst,
+
+								TCP->DeviceID,
+								TCP->DevicePort
 						);
 
 						Stream = fTCPStream_Init(kMB(128), FileName, FlowID, Flow.Hash, PCAPFile->TS);
@@ -1314,7 +1390,7 @@ int main(int argc, char* argv[])
 					if (Stream == NULL)
 					{
 						char FileName[257];
-						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
+						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i_%05i_%02i",
 								UDPOutputFileName,
 
 								UDP->MACSrc[0],	
@@ -1342,7 +1418,10 @@ int main(int argc, char* argv[])
 								UDP->IPDst.IP[3],
 
 								UDP->PortSrc,
-								UDP->PortDst
+								UDP->PortDst,
+
+								UDP->DeviceID,
+								UDP->DevicePort
 						);
 						Stream = fUDPStream_Init(FileName, FlowID, PCAPFile->TS);
 						s_ExtractUDP[FlowID] = Stream;
@@ -1495,7 +1574,8 @@ int main(int argc, char* argv[])
 */
 		}
 	}
-	fprintf(stderr, "parse done\n");
+	fprintf(stderr, "parse done TotalPkts:%lli\n", TotalPkt);
+	fflush(stderr);
 
 	// close output streams
 	for (int i=0; i < s_FlowListMax; i++)

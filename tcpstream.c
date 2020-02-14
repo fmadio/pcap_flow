@@ -201,7 +201,7 @@ void fTCPStream_Close(struct TCPStream_t* S)
 	fFile_Close(S->File);
 	S->File = NULL;
 
-	printf("[%s] OOO PacketList: %i/%i\n", S->Path, S->BufferListPos, S->BufferListMax);
+//	printf("[%s] OOO PacketList: %i/%i\n", S->Path, S->BufferListPos, S->BufferListMax);
 
 	memset(S, 0, sizeof(TCPStream_t));
 	free(S);
