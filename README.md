@@ -4,13 +4,13 @@
 
 displays flow information from pcap and can extract individual or all tcp streams
 
-###Options
+### Options
 
 Command line options
 
 ```
--o <filename>                              | write filtered flows to the specified file name
-                                           | for bulk tcp extraction this is the prefix filename
+--output_tcp <filename>                    | write filtered TCP flows to the specified directory
+--output_udp <filename>                    | write filtered UDP flows to the specified directory
 --packet-max  <number>                     | only process the first <number> packets
 --extract <number>                         | extract FlowID <number> into the output PCAP file
 --extract-tcp <number>                     | extract FlowID <number> as a TCP stream to the output file name
@@ -22,7 +22,7 @@ Command line options
 --tcpheader                                | include header in tcp output stream 
 ```
 
-###Examples
+### Examples
 
 
 **1) generate flow information from a compressed pcap file**
