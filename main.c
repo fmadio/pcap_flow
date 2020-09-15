@@ -347,8 +347,9 @@ static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
 	s32 Offset = Pkt->LengthCapture;
 	Offset -= sizeof(Metamako_t); 
 
+
 	// required if pcap has no FCS
-	Offset += 4; 
+	//Offset += 4; 
 
 	if (Offset < 0)
 	{
@@ -1214,7 +1215,7 @@ int main(int argc, char* argv[])
 
 					UDPHash->DeviceID 	= 0; 
 					UDPHash->DevicePort = 0; 
-/*
+
 					if (g_EnableMetamako)
 					{
 						// metamako footer
@@ -1223,7 +1224,6 @@ int main(int argc, char* argv[])
 						UDPHash->DeviceID 	= swap16(MFooter->DeviceID);
 						UDPHash->DevicePort = MFooter->PortID;
 					}
-*/
 					HashLength = 64; 
 				}
 			}
