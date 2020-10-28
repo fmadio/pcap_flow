@@ -2,7 +2,7 @@
 
 ![Alt text](http://fmad.io/analytics/logo_flow_analyzer.png "fmadio flow analyzer logo")
 
-displays flow information from pcap and can extract individual or all tcp streams
+displays flow information from a PCAP and can extract individual (or all) TCP streams
 
 ### Options
 
@@ -71,7 +71,7 @@ $ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29-
 
 ### TCP Output format 
 
-The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled TCP segment contains a header. The header format is: 
+The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the `--tcpheader` flag each succesfully re-assembled TCP segment contains a header. The header format is: 
 
 
 ```
