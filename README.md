@@ -17,33 +17,33 @@ Command line options
 --extract-tcp-port <start port> <end port> | extract all TCP flows with the specified port in src or dest 
 --extract-ip 1.2.3.4/255.255.255.255       | extract all IP`s matching the sepcificed mask into the output PCAP
 --extract-port <start port> <end port>     | extract all UDP/TCP packets matching the range into a seperate PCAP 
---stdin                                    | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
+--stdin                                    | read PCAP from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
 --disable-display                          | do not display flow information to stdout
---tcpheader                                | include header in tcp output stream 
+--tcpheader                                | include header in TCP output stream 
 ```
 
 ### Examples
 
 
-**1) generate flow information from a compressed pcap file**
+1) generate flow information from a compressed PCAP file
 
 ```
 zcat capture.pcap.gz | pcap_flows --stdin
 ```
 
-2) output a specific flow to a seperate pcap file 
+2) output a specific flow to a separate PCAP file 
 
 ```
 pcap_flows --extract 1234 raw_capture.pcap -o capture_flow_1234.pcap
 ```
 
-3) extract a tcp stream from a pcap
+3) extract a TCP stream from a pcap
 
 ```
 pcap_flows --extract-tcp 1234 raw_capture.pcap -o capture_flow_as_tcp1234.pcap
 ```
 
-3) extract all tcp streams from port 80 to port 80 
+3) extract all TCP streams from port 80 to port 80 
 
 Note: this can generate a very large number of files (one per stream) in the output directory. e.g. /tmp/tcp_stream_directory/extract_192.168.1.1-80->12345.pcap 
 
