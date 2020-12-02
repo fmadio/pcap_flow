@@ -175,6 +175,7 @@ static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
 
 bool						g_EnableMetamako		= false;	// enable metamako timestamp decoding 
+bool						g_EnableVLAN			= false;	// enable VLAN de-encapsulation		
 
 //---------------------------------------------------------------------------------------------
 
@@ -986,6 +987,12 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "    enable metamako timestamping\n");
 				g_EnableMetamako = true;
 			}
+			else if (strcmp(argv[i], "--vlan") == 0)
+			{
+				fprintf(stderr, "    enable vlan de-encapsulation\n");
+				g_EnableVLAN = true;
+			}
+
 			else
 			{
 				fprintf(stderr, "    unknown option [%s]\n", argv[i]);
@@ -1132,7 +1139,30 @@ int main(int argc, char* argv[])
 		FlowHash_t  Flow;
 
 		fEther_t * Ether = PCAPETHHeader(Pkt);
-		switch (swap16(Ether->Proto))
+
+		u32 EtherProto = swap16(Ether->Proto);
+
+		u32 DeviceID		= 0;
+		u32 DevicePort		= 0;
+
+		// VLAN tagging as device ID. e.g. Arista DANZ
+		if (g_EnableVLAN && (swap16(Ether->Proto) == ETHER_PROTO_VLAN))
+		{
+			VLANTag_t* Header 	= (VLANTag_t*)(Ether+1);
+			u16* Proto 			= (u16*)(Header + 1);
+
+			DeviceID 	=  VLANTag_ID(Header);		
+			DevicePort	= 0;
+
+			// set next ethernet protocol 
+			EtherProto = swap16(Proto[0]); 
+	
+			// nasty... chomp the packet
+			// need a better way to do this 
+			memmove(Ether + 1, Proto + 1, Pkt->Length - sizeof(VLANTag_t) - 2  - sizeof(fEther_t) );
+		}
+
+		switch (EtherProto)
 		{
 		case ETHER_PROTO_IPV4:
 		{
@@ -1162,8 +1192,8 @@ int main(int argc, char* argv[])
 					TCPHash->PortSrc = swap16(TCP->PortSrc); 
 					TCPHash->PortDst = swap16(TCP->PortDst); 
 
-					TCPHash->DeviceID 	= 0; 
-					TCPHash->DevicePort = 0; 
+					TCPHash->DeviceID 	= DeviceID; 
+					TCPHash->DevicePort = DevicePort; 
 
 					if (g_EnableMetamako)
 					{
@@ -1213,8 +1243,8 @@ int main(int argc, char* argv[])
 					UDPHash->PortSrc = swap16(UDP->PortSrc); 
 					UDPHash->PortDst = swap16(UDP->PortDst); 
 
-					UDPHash->DeviceID 	= 0; 
-					UDPHash->DevicePort = 0; 
+					UDPHash->DeviceID 	= DeviceID; 
+					UDPHash->DevicePort = DevicePort; 
 
 					if (g_EnableMetamako)
 					{
