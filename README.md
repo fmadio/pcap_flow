@@ -2,7 +2,7 @@
 
 ![Alt text](http://fmad.io/analytics/logo_flow_analyzer.png "fmadio flow analyzer logo")
 
-displays flow information from pcap and can extract individual or all tcp streams
+displays flow information from a PCAP and can extract individual (or all) TCP streams
 
 ### Options
 
@@ -17,33 +17,33 @@ Command line options
 --extract-tcp-port <start port> <end port> | extract all TCP flows with the specified port in src or dest 
 --extract-ip 1.2.3.4/255.255.255.255       | extract all IP`s matching the sepcificed mask into the output PCAP
 --extract-port <start port> <end port>     | extract all UDP/TCP packets matching the range into a seperate PCAP 
---stdin                                    | read pcap from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
+--stdin                                    | read PCAP from stdin. e.g. zcat capture.pcap | pcap_flow --stdin
 --disable-display                          | do not display flow information to stdout
---tcpheader                                | include header in tcp output stream 
+--tcpheader                                | include header in TCP output stream 
 ```
 
 ### Examples
 
 
-**1) generate flow information from a compressed pcap file**
+1) generate flow information from a compressed PCAP file
 
 ```
 zcat capture.pcap.gz | pcap_flows --stdin
 ```
 
-2) output a specific flow to a seperate pcap file 
+2) output a specific flow to a separate PCAP file 
 
 ```
 pcap_flows --extract 1234 raw_capture.pcap -o capture_flow_1234.pcap
 ```
 
-3) extract a tcp stream from a pcap
+3) extract a TCP stream from a pcap
 
 ```
 pcap_flows --extract-tcp 1234 raw_capture.pcap -o capture_flow_as_tcp1234.pcap
 ```
 
-3) extract all tcp streams from port 80 to port 80 
+3) extract all TCP streams from port 80 to port 80 
 
 Note: this can generate a very large number of files (one per stream) in the output directory. e.g. /tmp/tcp_stream_directory/extract_192.168.1.1-80->12345.pcap 
 
@@ -71,7 +71,7 @@ $ hexdump -Cv "tmp/port80__00:10:18:72:00:3c->e0:3f:49:6a:af:a1_117. 27.153. 29-
 
 ### TCP Output format 
 
-The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the --tcpheader flag each succesfully re-assembled TCP segment contains a header. The header format is: 
+The default TCP Output format is a flat linear file of the re-assemabled TCP stream. However with the `--tcpheader` flag each succesfully re-assembled TCP segment contains a header. The header format is: 
 
 
 ```
@@ -127,7 +127,7 @@ pcap_flows  /hitcon.pcap  --flow-packet-min 1000
 1048574 FlowID:   642642 | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
 ```
 
-Extract only port 80 traffic from hitcon.pcap to a seperate file. This is the individual TCP port 80 -> 63280 flow.
+Extract only port 80 traffic from hitcon.pcap to a separate file. This is the individual TCP port 80 -> 63280 flow.
 
 1048574 **FlowID:   642642** | TCP  00:10:18:72:00:3c -> e0:3f:49:6a:af:a1 |  17.253.  2.226 ->  10.  5.  9.102 |     80 ->  63280  |           115,911 Pkts       245,630,927 Bytes
 
