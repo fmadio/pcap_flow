@@ -175,6 +175,7 @@ static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
 
 bool						g_EnableMetamako		= false;	// enable metamako timestamp decoding 
+bool						g_EnableMetamako2T		= false;	// double metamako tags 
 bool						g_EnableVLAN			= false;	// enable VLAN de-encapsulation		
 
 //---------------------------------------------------------------------------------------------
@@ -347,6 +348,12 @@ static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
 
 	s32 Offset = Pkt->LengthCapture;
 	Offset -= sizeof(Metamako_t); 
+
+	// double tagged
+	if (g_EnableMetamako2T)
+	{
+		Offset -= sizeof(Metamako_t) - 4;  
+	}
 
 // temp work around
 // stream_cat isnt adjusting the capture length payload size
@@ -989,6 +996,12 @@ int main(int argc, char* argv[])
 			{
 				fprintf(stderr, "    enable metamako timestamping\n");
 				g_EnableMetamako = true;
+			}
+			else if (strcmp(argv[i], "--metamako-double") == 0)
+			{
+				fprintf(stderr, "    enable metamako double tags\n");
+				g_EnableMetamako 	= true;
+				g_EnableMetamako2T 	= true;
 			}
 			else if (strcmp(argv[i], "--vlan") == 0)
 			{
