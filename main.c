@@ -348,10 +348,13 @@ static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
 	s32 Offset = Pkt->LengthCapture;
 	Offset -= sizeof(Metamako_t); 
 
+// temp work around
+// stream_cat isnt adjusting the capture length payload size
+// when stripping vlans
+Offset -= 4; 
 
 	// required if pcap has no FCS
 	//Offset += 4; 
-
 	if (Offset < 0)
 	{
 		printf("pkt length %i %i\n", Pkt->Length, Pkt->LengthCapture);
