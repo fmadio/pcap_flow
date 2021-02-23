@@ -1012,7 +1012,7 @@ int main(int argc, char* argv[])
 			else if (strcmp(argv[i], "--disable-timezone") == 0)
 			{
 				fprintf(stderr, "    disable timezone adjustment\n");
-				g_TimeZoneEnable = false;
+				s_TimeZoneEnable = false;
 			}
 
 
@@ -1091,7 +1091,7 @@ int main(int argc, char* argv[])
 	struct tm lt = {0};
 
 	localtime_r(&t, &lt);
-	if (g_TimeZoneEnable)
+	if (s_TimeZoneEnable)
 	{
 		s_TimeZoneOffset = lt.tm_gmtoff * 1e9;
 		fprintf(stderr, "Timezone Adjustment: %lli\n", s_TimeZoneOffset);
@@ -1190,6 +1190,17 @@ int main(int argc, char* argv[])
 			memmove(Ether + 1, Proto + 1, Pkt->Length - sizeof(VLANTag_t) - 2  - sizeof(fEther_t) );
 		}
 
+		// update timestamp
+		Metamako_t* MFooter = NULL; 
+		if (g_EnableMetamako)
+		{
+			// metamako footer
+			MFooter = PCAPMetamako(Pkt); 
+
+			// update with Metamako timestamp
+			PCAPFile->TS = ((u64)swap32(MFooter->Sec)) * 1000000000ULL + (u64)swap32(MFooter->NSec);
+		}
+
 		switch (EtherProto)
 		{
 		case ETHER_PROTO_IPV4:
@@ -1225,9 +1236,6 @@ int main(int argc, char* argv[])
 
 					if (g_EnableMetamako)
 					{
-						// metamako footer
-						Metamako_t* MFooter = PCAPMetamako(Pkt); 
-
 						TCPHash->DeviceID 	= swap16(MFooter->DeviceID);
 						TCPHash->DevicePort = MFooter->PortID;
 					}
@@ -1276,9 +1284,6 @@ int main(int argc, char* argv[])
 
 					if (g_EnableMetamako)
 					{
-						// metamako footer
-						Metamako_t* MFooter = PCAPMetamako(Pkt); 
-
 						UDPHash->DeviceID 	= swap16(MFooter->DeviceID);
 						UDPHash->DevicePort = MFooter->PortID;
 					}
