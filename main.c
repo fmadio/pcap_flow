@@ -109,6 +109,7 @@ double TSC2Nano = 0;
 //---------------------------------------------------------------------------------------------
 // tunables
 static u64		s_MaxPackets			= (1ULL<<63);			// max number of packets to process
+static bool		s_TimeZoneEnable		= true;					// enable timezone adjustment by default
 static s64		s_TimeZoneOffset		= 0;					// local timezone
 u64				g_TotalMemory			= 0;					// total memory consumption
 u64				g_TotalMemoryTCP		= 0;					// total memory of keeping out of order tcp packets 
@@ -1008,6 +1009,13 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "    enable vlan de-encapsulation\n");
 				g_EnableVLAN = true;
 			}
+			else if (strcmp(argv[i], "--disable-timezone") == 0)
+			{
+				fprintf(stderr, "    disable timezone adjustment\n");
+				g_TimeZoneEnable = false;
+			}
+
+
 
 			else
 			{
@@ -1083,7 +1091,11 @@ int main(int argc, char* argv[])
 	struct tm lt = {0};
 
 	localtime_r(&t, &lt);
-	s_TimeZoneOffset = lt.tm_gmtoff * 1e9;
+	if (g_TimeZoneEnable)
+	{
+		s_TimeZoneOffset = lt.tm_gmtoff * 1e9;
+		fprintf(stderr, "Timezone Adjustment: %lli\n", s_TimeZoneOffset);
+	}
 
 	s_FlowIndex = (u32*)malloc( sizeof(u32)*(1ULL<<s_FlowIndexBits));
 	assert(s_FlowIndex  != NULL);
