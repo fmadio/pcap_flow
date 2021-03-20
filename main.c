@@ -348,7 +348,8 @@ static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
 	u8* Payload = (u8*)(Pkt+1);	
 
 	s32 Offset = Pkt->LengthCapture;
-	Offset -= sizeof(Metamako_t); 
+
+	Offset -= sizeof(Metamako_t);
 
 	// double tagged
 	if (g_EnableMetamako2T)
@@ -359,7 +360,7 @@ static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
 // temp work around
 // stream_cat isnt adjusting the capture length payload size
 // when stripping vlans
-Offset -= 4; 
+//Offset -= 4; 
 
 	// required if pcap has no FCS
 	//Offset += 4; 
