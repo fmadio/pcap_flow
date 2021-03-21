@@ -177,6 +177,7 @@ static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
 
 bool						g_EnableMetamako		= false;	// enable metamako timestamp decoding 
 bool						g_EnableMetamako2T		= false;	// double metamako tags 
+s32							g_MetamakoOffset		= 0;		// bugix for old stream_cat 
 bool						g_EnableVLAN			= false;	// enable VLAN de-encapsulation		
 
 //---------------------------------------------------------------------------------------------
@@ -361,6 +362,7 @@ static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
 // stream_cat isnt adjusting the capture length payload size
 // when stripping vlans
 //Offset -= 4; 
+Offset -= g_MetamakoOffset; 
 
 	// required if pcap has no FCS
 	//Offset += 4; 
@@ -684,6 +686,8 @@ static void print_usage(void)
 	fprintf(stderr, "  --cpu <number>                           | pin thread to a specific CPU\n"); 
 	fprintf(stderr, "  --flow-size-min <bytes>                  | minium file size to flow creation\n"); 
 	fprintf(stderr, "  --metamako                               | decode metamako footer\n"); 
+	fprintf(stderr, "  --metamako-double                        | decode double tagged metamako footer\n"); 
+	fprintf(stderr, "  --metamako-offset <bytes>                | manual offset for metamako pcap footer\n"); 
 	fprintf(stderr, "  --tcpheader                              | include TCP header in output\n"); 
 	fprintf(stderr, "  --udpheader                              | include UDP header in output\n"); 
 	fprintf(stderr, "\n");
@@ -1004,6 +1008,12 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "    enable metamako double tags\n");
 				g_EnableMetamako 	= true;
 				g_EnableMetamako2T 	= true;
+			}
+			else if (strcmp(argv[i], "--metamako-offset") == 0)
+			{
+				g_MetamakoOffset 	= atoi(argv[i+1]);
+				i++;
+				fprintf(stderr, "    metamako footer offset: %i\n", g_MetamakoOffset);
 			}
 			else if (strcmp(argv[i], "--vlan") == 0)
 			{
