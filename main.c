@@ -109,6 +109,7 @@ double TSC2Nano = 0;
 //---------------------------------------------------------------------------------------------
 // tunables
 static u64		s_MaxPackets			= (1ULL<<63);			// max number of packets to process
+static bool		s_TimeZoneEnable		= true;					// enable timezone adjustment by default
 static s64		s_TimeZoneOffset		= 0;					// local timezone
 u64				g_TotalMemory			= 0;					// total memory consumption
 u64				g_TotalMemoryTCP		= 0;					// total memory of keeping out of order tcp packets 
@@ -175,6 +176,9 @@ static FILE*				s_FlowLogFile			= NULL;		// file handle where to write flows
 static u64					s_PCAPTimeScale			= 1;		// timescale all raw pcap time stamps
 
 bool						g_EnableMetamako		= false;	// enable metamako timestamp decoding 
+bool						g_EnableMetamako2T		= false;	// double metamako tags 
+s32							g_MetamakoOffset		= 0;		// bugix for old stream_cat 
+bool						g_EnableVLAN			= false;	// enable VLAN de-encapsulation		
 
 //---------------------------------------------------------------------------------------------
 
@@ -345,11 +349,23 @@ static Metamako_t* PCAPMetamako(PCAPPacket_t* Pkt)
 	u8* Payload = (u8*)(Pkt+1);	
 
 	s32 Offset = Pkt->LengthCapture;
-	Offset -= sizeof(Metamako_t); 
+
+	Offset -= sizeof(Metamako_t);
+
+	// double tagged
+	if (g_EnableMetamako2T)
+	{
+		Offset -= sizeof(Metamako_t) - 4;  
+	}
+
+// temp work around
+// stream_cat isnt adjusting the capture length payload size
+// when stripping vlans
+//Offset -= 4; 
+Offset -= g_MetamakoOffset; 
 
 	// required if pcap has no FCS
-	Offset += 4; 
-
+	//Offset += 4; 
 	if (Offset < 0)
 	{
 		printf("pkt length %i %i\n", Pkt->Length, Pkt->LengthCapture);
@@ -670,6 +686,8 @@ static void print_usage(void)
 	fprintf(stderr, "  --cpu <number>                           | pin thread to a specific CPU\n"); 
 	fprintf(stderr, "  --flow-size-min <bytes>                  | minium file size to flow creation\n"); 
 	fprintf(stderr, "  --metamako                               | decode metamako footer\n"); 
+	fprintf(stderr, "  --metamako-double                        | decode double tagged metamako footer\n"); 
+	fprintf(stderr, "  --metamako-offset <bytes>                | manual offset for metamako pcap footer\n"); 
 	fprintf(stderr, "  --tcpheader                              | include TCP header in output\n"); 
 	fprintf(stderr, "  --udpheader                              | include UDP header in output\n"); 
 	fprintf(stderr, "\n");
@@ -985,6 +1003,31 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "    enable metamako timestamping\n");
 				g_EnableMetamako = true;
 			}
+			else if (strcmp(argv[i], "--metamako-double") == 0)
+			{
+				fprintf(stderr, "    enable metamako double tags\n");
+				g_EnableMetamako 	= true;
+				g_EnableMetamako2T 	= true;
+			}
+			else if (strcmp(argv[i], "--metamako-offset") == 0)
+			{
+				g_MetamakoOffset 	= atoi(argv[i+1]);
+				i++;
+				fprintf(stderr, "    metamako footer offset: %i\n", g_MetamakoOffset);
+			}
+			else if (strcmp(argv[i], "--vlan") == 0)
+			{
+				fprintf(stderr, "    enable vlan de-encapsulation\n");
+				g_EnableVLAN = true;
+			}
+			else if (strcmp(argv[i], "--disable-timezone") == 0)
+			{
+				fprintf(stderr, "    disable timezone adjustment\n");
+				s_TimeZoneEnable = false;
+			}
+
+
+
 			else
 			{
 				fprintf(stderr, "    unknown option [%s]\n", argv[i]);
@@ -1059,7 +1102,11 @@ int main(int argc, char* argv[])
 	struct tm lt = {0};
 
 	localtime_r(&t, &lt);
-	s_TimeZoneOffset = lt.tm_gmtoff * 1e9;
+	if (s_TimeZoneEnable)
+	{
+		s_TimeZoneOffset = lt.tm_gmtoff * 1e9;
+		fprintf(stderr, "Timezone Adjustment: %lli\n", s_TimeZoneOffset);
+	}
 
 	s_FlowIndex = (u32*)malloc( sizeof(u32)*(1ULL<<s_FlowIndexBits));
 	assert(s_FlowIndex  != NULL);
@@ -1131,7 +1178,41 @@ int main(int argc, char* argv[])
 		FlowHash_t  Flow;
 
 		fEther_t * Ether = PCAPETHHeader(Pkt);
-		switch (swap16(Ether->Proto))
+
+		u32 EtherProto = swap16(Ether->Proto);
+
+		u32 DeviceID		= 0;
+		u32 DevicePort		= 0;
+
+		// VLAN tagging as device ID. e.g. Arista DANZ
+		if (g_EnableVLAN && (swap16(Ether->Proto) == ETHER_PROTO_VLAN))
+		{
+			VLANTag_t* Header 	= (VLANTag_t*)(Ether+1);
+			u16* Proto 			= (u16*)(Header + 1);
+
+			DeviceID 	=  VLANTag_ID(Header);		
+			DevicePort	= 0;
+
+			// set next ethernet protocol 
+			EtherProto = swap16(Proto[0]); 
+	
+			// nasty... chomp the packet
+			// need a better way to do this 
+			memmove(Ether + 1, Proto + 1, Pkt->Length - sizeof(VLANTag_t) - 2  - sizeof(fEther_t) );
+		}
+
+		// update timestamp
+		Metamako_t* MFooter = NULL; 
+		if (g_EnableMetamako)
+		{
+			// metamako footer
+			MFooter = PCAPMetamako(Pkt); 
+
+			// update with Metamako timestamp
+			PCAPFile->TS = ((u64)swap32(MFooter->Sec)) * 1000000000ULL + (u64)swap32(MFooter->NSec);
+		}
+
+		switch (EtherProto)
 		{
 		case ETHER_PROTO_IPV4:
 		{
@@ -1161,14 +1242,11 @@ int main(int argc, char* argv[])
 					TCPHash->PortSrc = swap16(TCP->PortSrc); 
 					TCPHash->PortDst = swap16(TCP->PortDst); 
 
-					TCPHash->DeviceID 	= 0; 
-					TCPHash->DevicePort = 0; 
+					TCPHash->DeviceID 	= DeviceID; 
+					TCPHash->DevicePort = DevicePort; 
 
 					if (g_EnableMetamako)
 					{
-						// metamako footer
-						Metamako_t* MFooter = PCAPMetamako(Pkt); 
-
 						TCPHash->DeviceID 	= swap16(MFooter->DeviceID);
 						TCPHash->DevicePort = MFooter->PortID;
 					}
@@ -1212,18 +1290,14 @@ int main(int argc, char* argv[])
 					UDPHash->PortSrc = swap16(UDP->PortSrc); 
 					UDPHash->PortDst = swap16(UDP->PortDst); 
 
-					UDPHash->DeviceID 	= 0; 
-					UDPHash->DevicePort = 0; 
-/*
+					UDPHash->DeviceID 	= DeviceID; 
+					UDPHash->DevicePort = DevicePort; 
+
 					if (g_EnableMetamako)
 					{
-						// metamako footer
-						Metamako_t* MFooter = PCAPMetamako(Pkt); 
-
 						UDPHash->DeviceID 	= swap16(MFooter->DeviceID);
 						UDPHash->DevicePort = MFooter->PortID;
 					}
-*/
 					HashLength = 64; 
 				}
 			}

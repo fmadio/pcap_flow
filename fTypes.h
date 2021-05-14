@@ -420,7 +420,20 @@ typedef struct
 
 } fEther_t;
 
+typedef struct
+{
+	u16			VIDhi	: 4;
+	u16			DEI		: 1;
+	u16			PCP		: 3;
+	u16			VIDlo	: 8;
+
+} __attribute__((packed)) VLANTag_t;
+#define VLANTag_ID(a) (( a->VIDhi << 8 ) | a->VIDlo )
+
+
+
 #define ETHER_PROTO_IPV4		0x0800 
+#define ETHER_PROTO_VLAN		0x8100	
 typedef struct
 {
 	union
