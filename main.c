@@ -1025,9 +1025,11 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "    disable timezone adjustment\n");
 				s_TimeZoneEnable = false;
 			}
-
-
-
+			else if (strcmp(argv[i], "--uid") == 0)
+			{
+				fprintf(stderr, "    UID [%s]\n", argv[i+1]);
+				i++;
+			}
 			else
 			{
 				fprintf(stderr, "    unknown option [%s]\n", argv[i]);
