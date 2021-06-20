@@ -75,13 +75,17 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 void fUDPStream_Add(UDPStream_t* Stream, u64 TS, PCAPPacket_t* Pkt, UDPHeader_t* UDPHeader)
 {
 	u32 Length = swap16(UDPHeader->Length);	
-	assert(Length < 16*1024);
+	if (Length >= 16*1024)
+	{
+		fprintf(stderr, "udp packet length invalid UDP Length:%i PacketLength:%i\n", Length, Pkt->Length);
+		return;
+	}
 
 	// ensure its caped at the packet length
 	if (Length > Pkt->Length)
 	{
-		Length = Pkt->Length;
 		fprintf(stderr, "udp packet length truncated: Header %i Capture %i\n", Length, Pkt->Length);
+		Length = Pkt->Length;
 	}	
 
 	if (g_EnableUDPHeader)

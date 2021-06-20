@@ -535,7 +535,12 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, 
 				g_TotalMemoryTCP 		+= sizeof(TCPBuffer_t) + Length;
 
 				memset(B, 0, sizeof(TCPBuffer_t));
-				assert(Length < MAX_TCPSEGMENT);
+				if (Length >= MAX_TCPSEGMENT)
+				{
+					printf("TCP length overflow: %i %i\n", Length,  MAX_TCPSEGMENT);
+					return;
+				}
+				//assert(Length < MAX_TCPSEGMENT);
 
 				B->TS 		= TS;
 				B->SeqNo 	= SeqNo;
