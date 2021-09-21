@@ -362,8 +362,15 @@ static void fTCPStream_Reassembly(TCPStream_t* S, u64 TS, u32 Flag)
 
 //---------------------------------------------------------------------------------------------
 
-void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, u32 Length, u8* Payload)
+void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s32 Length, u8* Payload)
 {
+	// if length is invalid then drop the packet
+	if (Length < 0)
+	{
+		printf("ERROR: TCP Packet Length Negative!?: %s %s : %i\n", FormatTS(TS), S->Path, Length);
+		return;
+	}
+
 	//printf("tcp len: %i %08x %08x\n", Length, swap32(TCP->SeqNo), swap32(TCP->AckNo));
 	u32 WindowSize 	= swap16( TCP->Window) * S->WindowScale;
 	u32 SeqNo 		= swap32( TCP->SeqNo );

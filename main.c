@@ -317,7 +317,7 @@ static TCPHeader_t* PCAPTCPHeader(PCAPPacket_t* Pkt)
 	return TCP;
 }
 
-static u8* PCAPTCPPayload(PCAPPacket_t* Pkt, u32* Length)
+static u8* PCAPTCPPayload(PCAPPacket_t* Pkt, s32* Length)
 {
 	fEther_t* E = (fEther_t*)(Pkt+1);	
 
@@ -1427,6 +1427,7 @@ int main(int argc, char* argv[])
 
 					u32 TCPPayloadLength = 0;
 					u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
+
 					fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
 
 			fProfile_Stop(6);
