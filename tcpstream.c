@@ -645,11 +645,13 @@ void fTCPStream_Dump(u64 TS)
 		}
 	}
 
+	/*
 	for (int i=0; i < 1024; i++)
 	{
 		if (Histo[i] == 0) continue;
-		printf("%8i : %8i\n", i*16*1024, Histo[i]);
+		printf("%8i B : Cnt %8i\n", i*16*1024, Histo[i]);
 	}
+	*/
 
 	fprintf(stderr, "  StreamFound   : %16i\n", StreamCnt);
 	fprintf(stderr, "  StreamInactive: %16i (%.3f)\n", StreamInactive, StreamInactive / (float)StreamCnt);
