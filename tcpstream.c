@@ -522,12 +522,17 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s32 Length, 
 				}
 
 				s32 PayloadOffset = S->SeqNo - SeqNo; 
-				assert(PayloadOffset > 0);
+				if (PayloadOffset <= 0)
+				{
+					printf("[%s] [%s] ERROR: TCP OO reassembly PayloadOffset:%i SeqNo:%08x %08x dRemain:%i Length:%i\n", FormatTS(TS), S->Path, PayloadOffset, S->SeqNo, SeqNo, dRemain, Length);
+				}
+				else
+				{
+					fTCPStream_OutputPayload(S, TS, dRemain, Payload + PayloadOffset, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
 
-				fTCPStream_OutputPayload(S, TS, dRemain, Payload + PayloadOffset, Flag | TCPHEADER_FLAG_REASSEMBLE, S->SeqNo, 0, 0);
-
-				// check re-assembly buffer 
-				fTCPStream_Reassembly(S, TS, Flag);
+					// check re-assembly buffer 
+					fTCPStream_Reassembly(S, TS, Flag);
+				}
 			}
 
 			// stop processing if too many gaps 
