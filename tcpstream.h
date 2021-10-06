@@ -8,5 +8,6 @@ void fTCPStream_PacketAdd			(struct TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s3
 void fTCPStream_Close				(struct TCPStream_t* S);
 void fTCPStream_Flush				(struct TCPStream_t* S);
 void fTCPStream_Dump				(u64 TS);
+void fTCPStream_FlowStats			(struct TCPStream_t* S, FILE* Out);
 
 #endif

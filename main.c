@@ -425,6 +425,10 @@ static void PrintFlowTCP(FILE* Out, FlowHash_t* F, u32 FlowID, u32 FlowCnt)
 	fprintf(Out, " | ");
 	fprintf(Out, " Seq:%08x", F->TCPSeqNo);
 
+	// generate TCP specific stats
+	struct TCPStream_t* Stream = s_ExtractTCP[FlowID];
+	fTCPStream_FlowStats(Stream, Out);
+
 	fprintf(Out, "\n");
 }
 
@@ -1654,6 +1658,9 @@ int main(int argc, char* argv[])
 	fprintf(stderr, "parse done TotalPkts:%lli\n", TotalPkt);
 	fflush(stderr);
 
+	// need print stats before closing streams
+	if (s_EnableFlowDisplay) PrintHumanFlows();	
+
 	// close output streams
 	for (int i=0; i < s_FlowListMax; i++)
 	{
@@ -1665,7 +1672,6 @@ int main(int argc, char* argv[])
 	}
 
 	if (OutPCAP) fclose(OutPCAP);
-	if (s_EnableFlowDisplay) PrintHumanFlows();	
 }
 
 /* vim: set ts=4 sts=4 */

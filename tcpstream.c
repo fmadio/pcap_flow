@@ -65,6 +65,10 @@ typedef struct TCPStream_t
 
 	bool			IsTrace;				// debug this stream
 
+	u32				PktDrop;				// number of packets dropped
+	u32				PktOOO;					// number of packets out of order 
+	u32				PktTotal;				// total number of packets added
+
 } TCPStream_t;
 
 // public header output for each stream
@@ -379,7 +383,6 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s32 Length, 
 	// last packet TS	
 	S->LastTS 		= TS; 
 
-
 	u32 Flag 		= StreamTCPFlag(TCP->Flags); 
 	if (TCP_FLAG_SYN(TCP->Flags))
 	{
@@ -584,9 +587,21 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s32 Length, 
 					S->SeqNo = swap32(TCP->SeqNo) + Length;
 				}
 			}
+			else
+			{
+				// no space for re-assembly so drop it
+				S->PktDrop++;
+			}
+
+			// number of packets out of order
+			S->PktOOO++;;
+
 			fProfile_Stop(7);
 		}
 	}
+
+	// toatl number of packets
+	S->PktTotal++;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -662,4 +677,20 @@ void fTCPStream_Dump(u64 TS)
 	fprintf(stderr, "  StreamInactive: %16i (%.3f)\n", StreamInactive, StreamInactive / (float)StreamCnt);
 	fprintf(stderr, "  StreamActive  : %16i\n", StreamCnt - StreamInactive - StreamClose);
 	fprintf(stderr, "  StreamClose   : %16i\n", StreamClose); 
+}
+
+//---------------------------------------------------------------------------------------------
+// print per flow stats 
+void fTCPStream_FlowStats(TCPStream_t* S, FILE* Out)
+{
+	if (!S) return;
+
+	fprintf(Out, " BufPos: %8i WritePos:%8i PktTotal:%8i PktOOO:%8i PktDrop:%8i", 
+					S->BufferListPos, 
+					S->WritePos,
+					S->PktTotal,
+					S->PktOOO,
+					S->PktDrop
+
+	);
 }
