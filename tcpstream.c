@@ -524,7 +524,7 @@ void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s32 Length, 
 				s32 PayloadOffset = S->SeqNo - SeqNo; 
 				if (PayloadOffset <= 0)
 				{
-					printf("[%s] [%s] ERROR: TCP OO reassembly PayloadOffset:%i SeqNo:%08x %08x dRemain:%i Length:%i\n", FormatTS(TS), S->Path, PayloadOffset, S->SeqNo, SeqNo, dRemain, Length);
+					printf("[%s] [%s] ERROR: TCP OOO reassembly PayloadOffset:%i SeqNo:%08x %08x dRemain:%i Length:%i\n", FormatTS(TS), S->Path, PayloadOffset, S->SeqNo, SeqNo, dRemain, Length);
 				}
 				else
 				{
