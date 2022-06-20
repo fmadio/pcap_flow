@@ -1,6 +1,6 @@
 # pcap_flow
 
-![Alt text](http://fmad.io/analytics/logo_flow_analyzer.png "fmadio flow analyzer logo")
+![Alt text](http://firmware.fmad.io/images/logo_flow_analyzer.png "fmadio flow analyzer logo")
 
 displays flow information from a PCAP and can extract individual (or all) TCP streams
 
