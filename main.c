@@ -180,6 +180,8 @@ bool						g_EnableMetamako2T		= false;	// double metamako tags
 s32							g_MetamakoOffset		= 0;		// bugix for old stream_cat 
 bool						g_EnableVLAN			= false;	// enable VLAN de-encapsulation		
 
+static bool					s_Flow5Tuple			= false;	// use 5-tuple only flow caluclation mode
+
 //---------------------------------------------------------------------------------------------
 
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
@@ -1029,6 +1031,11 @@ int main(int argc, char* argv[])
 				fprintf(stderr, "    disable timezone adjustment\n");
 				s_TimeZoneEnable = false;
 			}
+			else if (strcmp(argv[i], "--flow-5tuple") == 0)
+			{
+				fprintf(stderr, "    flow 5 tuple only\n");
+				s_Flow5Tuple = true;
+			}
 			else if (strcmp(argv[i], "--uid") == 0)
 			{
 				fprintf(stderr, "    UID [%s]\n", argv[i+1]);
@@ -1124,6 +1131,9 @@ int main(int argc, char* argv[])
 	memset(s_FlowList, 0, sizeof(FlowHash_t) * s_FlowListMax );
 	assert(s_FlowList != NULL);
 	g_TotalMemory 		+= sizeof(FlowHash_t) * s_FlowListMax;
+
+	// set number of tcp flows
+	fTCPStream_MaxFlow(s_FlowListMax);	
 	
 	// open pcap diff files
 	PCAPFile_t* PCAPFile = OpenPCAP(FileNameList[0], FileStdin);	
@@ -1248,13 +1258,16 @@ int main(int argc, char* argv[])
 					TCPHash->PortSrc = swap16(TCP->PortSrc); 
 					TCPHash->PortDst = swap16(TCP->PortDst); 
 
-					TCPHash->DeviceID 	= DeviceID; 
-					TCPHash->DevicePort = DevicePort; 
-
-					if (g_EnableMetamako)
+					if (!s_Flow5Tuple)
 					{
-						TCPHash->DeviceID 	= swap16(MFooter->DeviceID);
-						TCPHash->DevicePort = MFooter->PortID;
+						TCPHash->DeviceID 	= DeviceID; 
+						TCPHash->DevicePort = DevicePort; 
+
+						if (g_EnableMetamako)
+						{
+							TCPHash->DeviceID 	= swap16(MFooter->DeviceID);
+							TCPHash->DevicePort = MFooter->PortID;
+						}
 					}
 
 					HashLength = 64; 
@@ -1296,13 +1309,16 @@ int main(int argc, char* argv[])
 					UDPHash->PortSrc = swap16(UDP->PortSrc); 
 					UDPHash->PortDst = swap16(UDP->PortDst); 
 
-					UDPHash->DeviceID 	= DeviceID; 
-					UDPHash->DevicePort = DevicePort; 
-
-					if (g_EnableMetamako)
+					if (!s_Flow5Tuple)
 					{
-						UDPHash->DeviceID 	= swap16(MFooter->DeviceID);
-						UDPHash->DevicePort = MFooter->PortID;
+						UDPHash->DeviceID 	= DeviceID; 
+						UDPHash->DevicePort = DevicePort; 
+
+						if (g_EnableMetamako)
+						{
+							UDPHash->DeviceID 	= swap16(MFooter->DeviceID);
+							UDPHash->DevicePort = MFooter->PortID;
+						}
 					}
 					HashLength = 64; 
 				}
@@ -1383,7 +1399,46 @@ int main(int argc, char* argv[])
 					if (Stream == NULL)
 					{
 						char FileName[1024];
-						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i_%05i_%02i",
+
+						// 5-tuple flow only mode
+						if (s_Flow5Tuple)
+						{
+							sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
+								TCPOutputFileName,
+								
+								TCP->MACSrc[0],	
+								TCP->MACSrc[1],	
+								TCP->MACSrc[2],	
+								TCP->MACSrc[3],	
+								TCP->MACSrc[4],	
+								TCP->MACSrc[5],	
+		
+								TCP->MACDst[0],	
+								TCP->MACDst[1],	
+								TCP->MACDst[2],	
+								TCP->MACDst[3],	
+								TCP->MACDst[4],	
+								TCP->MACDst[5],	
+
+								TCP->IPSrc.IP[0],
+								TCP->IPSrc.IP[1],
+								TCP->IPSrc.IP[2],
+								TCP->IPSrc.IP[3],
+
+								TCP->IPDst.IP[0],
+								TCP->IPDst.IP[1],
+								TCP->IPDst.IP[2],
+								TCP->IPDst.IP[3],
+
+								TCP->PortSrc,
+								TCP->PortDst
+							);
+
+						}
+						// add device/port info from the packet broker
+						else
+						{
+							sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i_%05i_%02i",
 								TCPOutputFileName,
 								
 								TCP->MACSrc[0],	
@@ -1415,7 +1470,8 @@ int main(int argc, char* argv[])
 
 								TCP->DeviceID,
 								TCP->DevicePort
-						);
+							);
+						}
 
 						Stream = fTCPStream_Init(kMB(128), FileName, FlowID, Flow.Hash, PCAPFile->TS);
 						s_ExtractTCP[FlowID] = Stream;
@@ -1471,7 +1527,44 @@ int main(int argc, char* argv[])
 					if (Stream == NULL)
 					{
 						char FileName[257];
-						sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i_%05i_%02i",
+
+						if (s_Flow5Tuple)
+						{
+							sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i",
+								UDPOutputFileName,
+
+								UDP->MACSrc[0],	
+								UDP->MACSrc[1],	
+								UDP->MACSrc[2],	
+								UDP->MACSrc[3],	
+								UDP->MACSrc[4],	
+								UDP->MACSrc[5],	
+		
+								UDP->MACDst[0],	
+								UDP->MACDst[1],	
+								UDP->MACDst[2],	
+								UDP->MACDst[3],	
+								UDP->MACDst[4],	
+								UDP->MACDst[5],	
+
+								UDP->IPSrc.IP[0],
+								UDP->IPSrc.IP[1],
+								UDP->IPSrc.IP[2],
+								UDP->IPSrc.IP[3],
+
+								UDP->IPDst.IP[0],
+								UDP->IPDst.IP[1],
+								UDP->IPDst.IP[2],
+								UDP->IPDst.IP[3],
+
+								UDP->PortSrc,
+								UDP->PortDst
+							);
+						}
+						// inlcude packet broker device id/port info
+						else
+						{
+							sprintf(FileName, "%s_%02x:%02x:%02x:%02x:%02x:%02x->%02x:%02x:%02x:%02x:%02x:%02x_%3i.%3i.%3i.%3i->%3i.%3i.%3i.%3i_%6i->%6i_%05i_%02i",
 								UDPOutputFileName,
 
 								UDP->MACSrc[0],	
@@ -1503,7 +1596,8 @@ int main(int argc, char* argv[])
 
 								UDP->DeviceID,
 								UDP->DevicePort
-						);
+							);
+						}
 						Stream = fUDPStream_Init(FileName, FlowID, PCAPFile->TS);
 						s_ExtractUDP[FlowID] = Stream;
 					}

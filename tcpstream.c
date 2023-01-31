@@ -99,9 +99,9 @@ extern bool			g_Verbose;
 
 //---------------------------------------------------------------------------------------------
 
-static int			s_StreamCnt		= 0;
-static int			s_StreamMax		= 4*1024*1024;
-static TCPStream_t* s_Stream[4*1024*1024];
+static int			s_StreamCnt				= 0;
+static int			s_StreamMax				= 4*1024*1024;
+static TCPStream_t**s_Stream				= NULL;
 
 extern bool			g_EnableTCPHeader;
 
@@ -111,6 +111,16 @@ static u32			s_TCPBufferMaxDepth		= 0;				// max depth of an OOO buffer
 
 static u64			s_TotalByte 			= 0;				// total number of bytes outputed in streams
 static u64			s_TotalPkt 				= 0;				// total number of packets output 
+
+//---------------------------------------------------------------------------------------------
+
+void fTCPStream_MaxFlow(u32 MaxFlow)
+{
+	s_StreamMax = MaxFlow;
+	s_Stream    = (TCPStream_t**)malloc( s_StreamMax * sizeof(TCPStream_t*));
+	memset(s_Stream, 0, s_StreamMax * sizeof(TCPStream_t*));
+	fprintf(stderr, "TCP Flow Max: %i\n", MaxFlow);
+}
 
 //---------------------------------------------------------------------------------------------
 // converts tcpflags to our internal version
