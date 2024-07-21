@@ -182,6 +182,8 @@ bool						g_EnableVLAN			= false;	// enable VLAN de-encapsulation
 
 static bool					s_Flow5Tuple			= false;	// use 5-tuple only flow caluclation mode
 
+bool						g_OutputPCAP			= false;	// output streams in pcap format
+
 //---------------------------------------------------------------------------------------------
 
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
@@ -962,15 +964,22 @@ int main(int argc, char* argv[])
 			{
 				UDPOutputFileName = argv[i+1];
 				i++;
-				fprintf(stderr, "    writing UDP PCAP to [%s]\n", UDPOutputFileName);
+				fprintf(stderr, "    writing UDP data to [%s]\n", UDPOutputFileName);
 			}
 			// TCP output file
 			else if (strcmp(argv[i], "--output-tcp") == 0)
 			{
 				TCPOutputFileName = argv[i+1];
 				i++;
-				fprintf(stderr, "    writing TCP PCAP to [%s]\n", TCPOutputFileName);
+				fprintf(stderr, "    writing TCP data to [%s]\n", TCPOutputFileName);
 			}
+			// Ouput in PCAP format 
+			else if (strcmp(argv[i], "--output-pcap") == 0)
+			{
+				g_OutputPCAP	= true;
+				fprintf(stderr, "    Output in PCAP format\n", g_OutputPCAP); 
+			}
+
 			// pin to a specific CPU
 			else if (strcmp(argv[i], "--cpu") == 0)
 			{
@@ -1488,7 +1497,7 @@ int main(int argc, char* argv[])
 					u32 TCPPayloadLength = 0;
 					u8*	TCPPayload	= PCAPTCPPayload(Pkt, &TCPPayloadLength); 
 
-					fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload);
+					fTCPStream_PacketAdd(Stream, PCAPFile->TS, TCPHeader, TCPPayloadLength, TCPPayload, Pkt);
 
 			fProfile_Stop(6);
 

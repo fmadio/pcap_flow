@@ -96,6 +96,7 @@ typedef struct
 extern u64			g_TotalMemory;
 extern u64			g_TotalMemoryTCP;
 extern bool			g_Verbose;
+extern bool			g_OutputPCAP;
 
 //---------------------------------------------------------------------------------------------
 
@@ -177,6 +178,32 @@ TCPStream_t* fTCPStream_Init(u64 MemorySize, char* OutputName, u32 FlowID, u32 F
 
 	TCPStream->WindowScale		= 1;
 
+	// if want raw PCAP only
+	if (g_OutputPCAP)
+	{
+		sprintf(TCPStream->Path, "%s.pcap", OutputName);
+
+		TCPStream->File = fFile_Open(TCPStream->Path, "w");
+		if (!TCPStream->File)
+		{
+			fprintf(stderr, "failed to create file [%s]\n", TCPStream->Path);
+			return 0;
+		}
+
+		PCAPHeader_t Header;
+		Header.Magic 	= PCAPHEADER_MAGIC_NANO;
+		Header.Major 	= PCAPHEADER_MAJOR;
+		Header.Minor 	= PCAPHEADER_MINOR;
+		Header.TimeZone = 0;
+		Header.SigFlag 	= 0;
+		Header.SnapLen 	= 0;
+		Header.Link		= PCAPHEADER_LINK_ETHERNET;
+
+		fFile_Write(TCPStream->File, &Header, sizeof(Header), true);
+	}
+
+
+
 	//printf("[%s] FlowID:%i TCP Stream: [%s]\n", FormatTS(TS), FlowID, OutputName);
 	return TCPStream; 
 }
@@ -254,6 +281,7 @@ void fTCPStream_OutputHeader(TCPStream_t* S, TCPOutputHeader_t* Header)
 
 void fTCPStream_OutputPayload(TCPStream_t* S, u64 TS, u32 Length, u8* Payload, u32 Flag, u32 SeqNo, u32 AckNo, u32 WindowSize)
 {
+
 	// ensure file is open 
 	fTCPStream_Open(S);	
 
@@ -376,8 +404,24 @@ static void fTCPStream_Reassembly(TCPStream_t* S, u64 TS, u32 Flag)
 
 //---------------------------------------------------------------------------------------------
 
-void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s32 Length, u8* Payload)
+void fTCPStream_PacketAdd(TCPStream_t* S, u64 TS, TCPHeader_t* TCP, s32 Length, u8* Payload, PCAPPacket_t* Pkt)
 {
+	// raw PCAP output only 
+	if (g_OutputPCAP)
+	{
+		// closed so re-open
+		if (!S->File)
+		{
+			S->File = fFile_Open(S->Path, NULL); 
+			if (S->File == NULL)
+			{
+				fprintf(stderr, "failed to open output file [%s]\n", S->Path);
+			}
+		}
+		fFile_Write(S->File, Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, true);
+		return;
+	}
+
 	// if length is invalid then drop the packet
 	if (Length < 0)
 	{

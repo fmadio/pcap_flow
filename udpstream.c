@@ -30,6 +30,7 @@
 //---------------------------------------------------------------------------------------------
 
 extern bool			g_EnableUDPHeader;
+extern bool			g_OutputPCAP;	
 
 //---------------------------------------------------------------------------------------------
 
@@ -58,6 +59,14 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 	UDPStream_t* Stream = malloc(sizeof(UDPStream_t));
 	memset(Stream, 0, sizeof(UDPStream_t));
 
+	// append .pcap
+	u8 FilenamePCAP[2048];
+	if (g_OutputPCAP)
+	{
+		sprintf(FilenamePCAP, "%s.pcap", FileName);
+		FileName = FilenamePCAP;
+	}
+
 	Stream->F = fFile_Open(FileName, "w");
 	if (!Stream->F)
 	{
@@ -65,7 +74,22 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 		return 0;
 	}
 	Stream->FlowID = FlowID;
-	//printf("[%s] FlowID:%i UDP Stream: [%s]\n", FormatTS(TS), FlowID, FileName);
+	printf("[%s] FlowID:%i UDP Stream: [%s]\n", FormatTS(TS), FlowID, FileName);
+
+	// if PCAP then write pcap header
+	if (g_OutputPCAP)
+	{
+		PCAPHeader_t Header;
+		Header.Magic 	= PCAPHEADER_MAGIC_NANO;
+		Header.Major 	= PCAPHEADER_MAJOR;
+		Header.Minor 	= PCAPHEADER_MINOR;
+		Header.TimeZone = 0;
+		Header.SigFlag 	= 0;
+		Header.SnapLen 	= 0;
+		Header.Link		= PCAPHEADER_LINK_ETHERNET;
+
+		fFile_Write(Stream->F, &Header, sizeof(Header), true);
+	}
 
 	return Stream;
 }
@@ -74,6 +98,14 @@ UDPStream_t* fUDPStream_Init(char* FileName, u32 FlowID, u64 TS)
 
 void fUDPStream_Add(UDPStream_t* Stream, u64 TS, PCAPPacket_t* Pkt, UDPHeader_t* UDPHeader)
 {
+	// output in PCAP format
+	if (g_OutputPCAP)
+	{
+		fFile_Write(Stream->F, Pkt, sizeof(PCAPPacket_t) + Pkt->LengthCapture, true);
+		return;
+	}
+
+	// write only the UDP payload
 	u32 Length = swap16(UDPHeader->Length);	
 	if (Length >= 16*1024)
 	{
